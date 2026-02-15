@@ -726,20 +726,26 @@
     // API Calls
     async function loadDashboard() {
       try {
-        const res = await fetch(API + '/api/dashboard');
-        const data = await res.json();
+        let totalUsd = 0;
+        try {
+          const realRes = await fetch(API + '/api/portfolio/real');
+          const realData = await realRes.json();
+          if (realData.totalUsd) totalUsd = realData.totalUsd;
+        } catch (e) { console.log('Real portfolio not available'); }
         
-        document.getElementById('portfolio-balance').textContent = '$' + data.portfolio.toFixed(2);
+        if (totalUsd > 0) {
+          document.getElementById('portfolio-balance').innerHTML = '$' + totalUsd.toFixed(2) + ' <span style="font-size:12px;color:var(--accent)">ON-CHAIN</span>';
+        } else {
+          const res = await fetch(API + '/api/dashboard');
+          const data = await res.json();
+          document.getElementById('portfolio-balance').textContent = '$' + data.portfolio.toFixed(2);
+        }
         
-        const pnlEl = document.getElementById('portfolio-pnl');
-        pnlEl.textContent = (data.pnl >= 0 ? '+' : '') + '$' + data.pnl.toFixed(2);
-        pnlEl.className = 'card-value ' + (data.pnl >= 0 ? 'positive' : 'negative');
-        
-       Id('portfolio-p document.getElementBynl-percent').textContent = 
-          (data.pnlPercent >= 0 ? '+' : '') + data.pnlPercent + '%';
-        
-        document.getElementById('open-positions').textContent = data.positions.length;
-        document.getElementById('today-trades').textContent = data.positions.length;
+        document.getElementById('portfolio-pnl').textContent = '$0.00';
+        document.getElementById('portfolio-pnl').className = 'card-value';
+        document.getElementById('portfolio-pnl-percent').textContent = '+0.00%';
+        document.getElementById('open-positions').textContent = '0';
+        document.getElementById('today-trades').textContent = '0';
       } catch (e) {
         console.error('Dashboard error:', e);
       }
@@ -946,3 +952,4 @@
   </script>
 </body>
 </html>
+
