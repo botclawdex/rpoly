@@ -495,6 +495,13 @@
     <section id="markets" class="section">
       <div class="card">
         <div class="card-label">Active Markets</div>
+        
+        <!-- Market Type Filter -->
+        <div style="margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
+          <button class="trade-btn active" id="filter-5m" onclick="setMarketFilter('5m')">[01] 5-MINUTE</button>
+          <button class="trade-btn" id="filter-all" onclick="setMarketFilter('all')">[02] ALL MARKETS</button>
+        </div>
+        
         <table class="markets-table">
           <thead>
             <tr>
@@ -615,6 +622,9 @@
   <script>
     const API = '';
     
+    // Market filter state
+    let currentMarketFilter = '5m';
+    
     // Navigation
     function showSection(id) {
       document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -629,6 +639,16 @@
       if (id === 'signals') loadSignals();
       if (id === 'portfolio') loadPortfolio();
       if (id === 'settings') loadSettings();
+    }
+    
+    // Market filter
+    function setMarketFilter(filter) {
+      currentMarketFilter = filter;
+      
+      document.getElementById('filter-5m').classList.toggle('active', filter === '5m');
+      document.getElementById('filter-all').classList.toggle('active', filter === 'all');
+      
+      loadMarkets();
     }
     
     // API Calls
@@ -655,10 +675,16 @@
     
     async function loadMarkets() {
       try {
-        const res = await fetch(API + '/api/markets');
+        const res = await fetch(API + '/api/markets?filter=' + currentMarketFilter);
         const data = await res.json();
         
         const tbody = document.getElementById('markets-list');
+        
+        if (data.markets.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 40px; color: var(--text-secondary);">No markets found for this filter</td></tr>';
+          return;
+        }
+        
         tbody.innerHTML = data.markets.map(m => `
           <tr>
             <td>

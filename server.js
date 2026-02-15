@@ -159,10 +159,12 @@ app.get("/api/dashboard", (req, res) => {
 app.get("/api/markets", async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 20;
-    const filter5m = req.query['5m'] === 'true';
+    const filter = req.query.filter || '5m'; // '5m' or 'all'
+    const filter5m = filter === '5m';
+    
     const markets = await getActiveMarkets(limit, filter5m);
     
-    res.json({ markets, timestamp: Date.now() });
+    res.json({ markets, filter: filter, timestamp: Date.now() });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
