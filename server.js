@@ -14,6 +14,15 @@ const PORT = process.env.PORT || 3001;
 const GAMMA_API = "https://gamma-api.polymarket.com";
 const CLOB_API = "https://clob.polymarket.com";
 
+// ===== BINANCE API =====
+const BINANCE_API = "https://api.binance.com";
+
+// ===== BASESCAN API =====
+const BASESCAN_API = "https://api.basescan.org/api";
+const BASESCAN_KEY = process.env.BASESCAN_KEY || "HSHV72NNW6KVQA88YB5BFSZHTVPFWC2GJU";
+const WALLET_ADDR = "0xDEB4f464d46B1A3CDB4A29c41C6E908378993914";
+const USDC_ADDR = "0x833589fCD6eDb6E08f4c7C32D4f71B54bdA02913"; // USDC on Base
+
 // Mock portfolio for demo
 let portfolio = {
   balance: 1000, // USD
@@ -208,6 +217,61 @@ async function getActiveMarkets(limit = 20, filter5m = false) {
   return getMarkets(limit, filter5m);
 }
 
+// ===== BINANCE API HELPER =====
+
+async function getBTCPrice() {
+  try {
+    const res = await axios.get(`${BINANCE_API}/api/v3/ticker/price?symbol=BTCUSDT`);
+    return {
+      price: parseFloat(res.data.price),
+      symbol: res.data.symbol,
+      timestamp: Date.now()
+    };
+  } catch (e) {
+    console.error("BTC price error:", e.message);
+    return null;
+  }
+}
+
+// ===== BASESCAN API HELPERS =====
+
+async function getOnChainBalance(address) {
+  try {
+    // ETH balance
+    const ethRes = await axios.get(`${BASESCAN_API}/api`, {
+      params: {
+        module: "account",
+        action: "balance",
+        address: address,
+        tag: "latest",
+        apikey: BASESCAN_KEY
+      }
+    });
+    
+    // USDC balance
+    const usdcRes = await axios.get(`${BASESCAN_API}/api`, {
+      params: {
+        module: "account",
+        action: "tokenbalance",
+        address: address,
+        contractaddress: USDC_ADDR,
+        tag: "latest",
+        apikey: BASESCAN_KEY
+      }
+    });
+    
+    return {
+      eth: parseFloat(ethRes.data.result) / 1e18,
+      usdc: parseFloat(usdcRes.data.result) / 1e6,
+      address: address,
+      timestamp: Date.now()
+    };
+  } catch (e) {
+    console.error("Balance error:", e.message);
+    return null;
+  }
+}
+
 // Get market details
 async function getMarketDetails(marketIdOrSlug) {
   try {
@@ -242,7 +306,7 @@ async function getOrderbook(tokenId) {
 
 // Health check
 app.get("/health", (req, res) => {
-  res.json({ status: "ok", service: "rPoly API", version: "1.2.0", network: "polymarket" });
+  res.json({ status: "ok", service: "rPoly API", version: "1.3.0", network: "polymarket" });
 });
 
 // Dashboard - portfolio overview
@@ -297,6 +361,76 @@ app.get("/api/markets/long", async (req, res) => {
     }
     
     res.json({ markets: filtered, type: "long", category: category || "all", timestamp: Date.now() });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== NOWE ENDPOINTY =====
+
+// Analyze 5m BTC market
+app.get("/api/analyze", async (req, res) => {
+  try {
+    const btc = await getBTCPrice();
+    const windowTs = getCurrent5mWindowTs();
+    
+    // Get current 5m market
+    const slug = `btc-updown-5m-${windowTs}`;
+    const marketRes = await axios.get(`${GAMMA_API}/markets`, { params: { slug } });
+    
+    let market = null;
+    if (marketRes.data?.[0]) {
+      const m = marketRes.data[0];
+      const prices = JSON.parse(m.outcomePrices || "[]");
+      market = {
+        question: m.question,
+        slug: m.slug,
+        upPrice: parseFloat(prices[0]) || 0,
+        downPrice: parseFloat(prices[1]) || 0,
+        volume: m.volumeNum || 0,
+        liquidity: m.liquidityNum || 0,
+        endDate: m.endDate
+      };
+    }
+    
+    // Calculate signal based on Polymarket prices
+    // If UP price > 55%, market thinks UP so signal DOWN (fade)
+    // If DOWN price > 55%, market thinks DOWN so signal UP (fade)
+    const signal = market?.upPrice > 0.55 ? "DOWN" :
+                   market?.downPrice > 0.55 ? "UP" : "NEUTRAL";
+    
+    res.json({
+      btc,
+      market,
+      signal,
+      windowTs,
+      timestamp: Date.now()
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Real on-chain portfolio
+app.get("/api/portfolio/real", async (req, res) => {
+  try {
+    const balance = await getOnChainBalance(WALLET_ADDR);
+    
+    if (!balance) {
+      return res.status(500).json({ error: "Failed to fetch balance" });
+    }
+    
+    // Get BTC price for conversion
+    const btc = await getBTCPrice();
+    const ethUsd = btc?.price || 0;
+    
+    res.json({
+      eth: balance.eth,
+      usdc: balance.usdc,
+      totalUsd: (balance.eth * ethUsd) + balance.usdc,
+      address: WALLET_ADDR,
+      timestamp: Date.now()
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
