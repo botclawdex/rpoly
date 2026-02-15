@@ -27,11 +27,12 @@ let portfolio = {
 // Get current 5-minute window timestamp
 // Returns the NEXT window (the one that just opened), not the current one which may be closing
 function getCurrent5mWindowTs() {
-  const now = Date.now();
-  // Round down to get current window start
-  const currentWindow = Math.floor(now / 300000) * 300000;
-  // Return next window (5 min ahead) so we get the newly opened market
-  return currentWindow + 300000;
+  const nowMs = Date.now();
+  const nowSeconds = Math.floor(nowMs / 1000);
+  // Round down to get current window start in seconds (300 = 5 min * 60 sec)
+  const currentWindowSec = Math.floor(nowSeconds / 300) * 300;
+  // Return next window (5 min ahead)
+  return currentWindowSec + 300;
 }
 
 // Fetch markets from Polymarket (includes 5m markets)
@@ -89,7 +90,7 @@ async function getMarkets(limit = 50, filter5m = false) {
       // Also try to get recent 5m windows (last few)
       const markets = [];
       for (let i = 0; i <= 3; i++) {
-        const pastWindowTs = getCurrent5mWindowTs() - (i * 300000);
+        const pastWindowTs = getCurrent5mWindowTs() - (i * 300);
         const pastSlug = `btc-updown-5m-${pastWindowTs}`;
         
         try {
