@@ -25,9 +25,13 @@ let portfolio = {
 // ===== POLYMARKET HELPER FUNCTIONS =====
 
 // Get current 5-minute window timestamp
+// Returns the NEXT window (the one that just opened), not the current one which may be closing
 function getCurrent5mWindowTs() {
   const now = Date.now();
-  return Math.floor(now / 300000) * 300000;
+  // Round down to get current window start
+  const currentWindow = Math.floor(now / 300000) * 300000;
+  // Return next window (5 min ahead) so we get the newly opened market
+  return currentWindow + 300000;
 }
 
 // Fetch markets from Polymarket (includes 5m markets)
@@ -38,12 +42,15 @@ async function getMarkets(limit = 50, filter5m = false) {
     if (filter5m) {
       const windowTs = getCurrent5mWindowTs();
       const slug = `btc-updown-5m-${windowTs}`;
+      console.log("Fetching 5m market with slug:", slug, "windowTs:", windowTs);
       
       try {
         const response = await axios.get(`${GAMMA_API}/markets`, {
           params: { slug: slug },
           timeout: 8000
         });
+        
+        console.log("5m API response length:", response.data?.length);
         
         if (response.data && response.data.length > 0) {
           const market = response.data[0];
