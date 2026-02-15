@@ -31,8 +31,9 @@ async function getActiveMarkets(limit = 20, filter5m = false) {
       params: {
         active: true,
         closed: false,
-        limit: 100 // Get more to filter
-      }
+        limit: 50 // Limit to avoid timeout
+      },
+      timeout: 8000 // 8 second timeout
     });
     
     let markets = [];
@@ -43,28 +44,15 @@ async function getActiveMarkets(limit = 20, filter5m = false) {
           if (filter5m && !market.slug?.includes('5m')) continue;
           if (!filter5m && market.slug?.includes('5m')) continue;
           
-          // Get current price from CLOB
+          // Use prices from Gamma API (no extra calls)
           let yesPrice = null;
           let noPrice = null;
           
-          if (market.clobTokenIds && market.clobTokenIds.length >= 2) {
-            try {
-              const yesPriceRes = await axios.get(`${CLOB_API}/price`, {
-                params: { token_id: market.clobTokenIds[0], side: 'buy' }
-              });
-              const noPriceRes = await axios.get(`${CLOB_API}/price`, {
-                params: { token_id: market.clobTokenIds[1], side: 'buy' }
-              });
-              yesPrice = parseFloat(yesPriceRes.data.price);
-              noPrice = parseFloat(noPriceRes.data.price);
-            } catch (e) {
-              try {
-                const parsed = JSON.parse(market.outcomePrices || "[]");
-                yesPrice = parsed[0] || null;
-                noPrice = parsed[1] || null;
-              } catch {}
-            }
-          }
+          try {
+            const parsed = JSON.parse(market.outcomePrices || "[]");
+            yesPrice = parsed[0] ? parseFloat(parsed[0]) : null;
+            noPrice = parsed[1] ? parseFloat(parsed[1]) : null;
+          } catch {}
           
           markets.push({
             id: market.id,
@@ -82,8 +70,12 @@ async function getActiveMarkets(limit = 20, filter5m = false) {
             tags: event.tags?.map(t => t.label) || [],
             is5m: market.slug?.includes('5m') || false
           });
+          
+          // Stop early if we have enough (avoid timeout)
+          if (markets.length >= limit * 2) break;
         }
       }
+      if (markets.length >= limit * 2) break;
     }
     
     // Sort by volume and limit
