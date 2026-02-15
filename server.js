@@ -152,7 +152,7 @@ app.get("/api/markets", async (req, res) => {
     
     res.json({ markets, timestamp: Date.now() });
   } catch (error) {
-    res.status(500.json({ error: error.message });
+    res.status(500).json({ error: error.message });
   }
 });
 
