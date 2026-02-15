@@ -19,10 +19,18 @@ const CLOB_API = "https://clob.polymarket.com";
 // ===== BINANCE API =====
 const BINANCE_API = "https://api.binance.com";
 
-// ===== COINBASE RPC (for on-chain balance) =====
-const BASE_RPC = "https://mainnet.base.org";
+// ===== WALLET CONFIG =====
 const WALLET_ADDR = "0xDEB4f464d46B1A3CDB4A29c41C6E908378993914";
-const USDC_ADDR = "0x833589fCD6eDb6E08f4c7C32D4f71B54bdA02913";
+const USDC_ADDR = "0x833589fCD6eDb6E08f4c7C32D4f71B54bdA02913"; // Base USDC
+const POLYGON_USDC_ADDR = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"; // Polygon USDC
+
+// ===== ETHERSCAN V2 API (works on all networks) =====
+const ETHERSCAN_V2_API = {
+  base: "https://api.basescan.org/api/v2",
+  polygon: "https://api.polygonscan.com/api/v2",
+  ethereum: "https://api.etherscan.io/api/v2"
+};
+const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || "HSHV72NNW6KVQA88YB5BFSZHTVPFWC2GJU";
 
 // Mock portfolio for demo
 let portfolio = {
@@ -236,46 +244,96 @@ async function getCryptoPrices() {
   }
 }
 
-// Get on-chain balance using Base RPC
-async function getOnChainBalance(address) {
+// Get native token balance (ETH/POL/MATIC) from Etherscan V2 API
+async function getNativeBalance(chain) {
   try {
-    // ETH balance
-    const ethBody = JSON.stringify({
-      jsonrpc: "2.0",
-      method: "eth_getBalance",
-      params: [address, "latest"],
-      id: 1
-    });
-    const ethRes = await axios.post(BASE_RPC, ethBody, {
-      headers: { "Content-Type": "application/json" }
-    });
-    const ethWei = parseInt(ethRes.data.result, 16);
-    const eth = ethWei / 1e18;
+    const url = `${ETHERSCAN_V2_API[chain]}/?module=account&action=balance&address=${WALLET_ADDR}&tag=latest&apikey=${ETHERSCAN_API_KEY}`;
+    const res = await axios.get(url, { timeout: 10000 });
     
-    // USDC balance (ERC-20 balanceOf)
-    const usdcData = "0x70a08231000000000000000000000000" + address.slice(2).toLowerCase();
-    const usdcBody = JSON.stringify({
-      jsonrpc: "2.0",
-      method: "eth_call",
-      params: [{ to: USDC_ADDR, data: usdcData }, "latest"],
-      id: 1
-    });
-    const usdcRes = await axios.post(BASE_RPC, usdcBody, {
-      headers: { "Content-Type": "application/json" }
-    });
-    const usdcWei = parseInt(usdcRes.data.result, 16);
-    const usdc = usdcWei / 1e6;
+    if (res.data.status === "1") {
+      const wei = parseInt(res.data.result);
+      return wei / 1e18;
+    }
+    return 0;
+  } catch (e) {
+    console.error(`${chain} balance error:`, e.message);
+    return 0;
+  }
+}
+
+// Get ERC-20 token balance from Etherscan V2 API
+async function getTokenBalance(chain, tokenAddr) {
+  try {
+    const url = `${ETHERSCAN_V2_API[chain]}/?module=account&action=tokenbalance&address=${WALLET_ADDR}&contractaddress=${tokenAddr}&tag=latest&apikey=${ETHERSCAN_API_KEY}`;
+    const res = await axios.get(url, { timeout: 10000 });
+    
+    if (res.data.status === "1") {
+      // USDC has 6 decimals
+      const decimals = tokenAddr.toLowerCase() === USDC_ADDR.toLowerCase() || 
+                       tokenAddr.toLowerCase() === POLYGON_USDC_ADDR.toLowerCase() ? 6 : 18;
+      const wei = parseInt(res.data.result);
+      return wei / Math.pow(10, decimals);
+    }
+    return 0;
+  } catch (e) {
+    console.error(`${chain} token balance error:`, e.message);
+    return 0;
+  }
+}
+
+// Get multi-chain portfolio using Etherscan V2 API
+async function getMultiChainPortfolio() {
+  try {
+    // Base network
+    const baseEth = await getNativeBalance("base");
+    const baseUsdc = await getTokenBalance("base", USDC_ADDR);
+    
+    // Polygon network (Polymarket)
+    const polygonMatic = await getNativeBalance("polygon");
+    const polygonUsdc = await getTokenBalance("polygon", POLYGON_USDC_ADDR);
+    
+    // Get ETH price for USD conversion
+    const prices = await getCryptoPrices();
+    const ethUsd = prices?.eth || 0;
+    
+    // Calculate totals
+    const baseTotal = (baseEth * ethUsd) + baseUsdc;
+    const polygonTotal = polygonUsdc; // MATIC value is small, roughly $0.50-1.00
     
     return {
-      eth: eth,
-      usdc: usdc,
-      address: address,
+      base: {
+        eth: baseEth,
+        usdc: baseUsdc,
+        totalUsd: baseTotal
+      },
+      polygon: {
+        matic: polygonMatic,
+        usdc: polygonUsdc,
+        totalUsd: polygonTotal
+      },
+      totalUsd: baseTotal + polygonTotal,
+      address: WALLET_ADDR,
       timestamp: Date.now()
     };
   } catch (e) {
-    console.error("Balance error:", e.message);
+    console.error("Multi-chain portfolio error:", e.message);
     return null;
   }
+}
+
+// Legacy: Get on-chain balance using Base RPC (kept for compatibility)
+async function getOnChainBalance(address) {
+  // Use Etherscan V2 instead
+  const portfolio = await getMultiChainPortfolio();
+  if (portfolio) {
+    return {
+      eth: portfolio.base.eth,
+      usdc: portfolio.base.usdc,
+      address: address,
+      timestamp: Date.now()
+    };
+  }
+  return null;
 }
 
 // Get market details
@@ -418,26 +476,16 @@ app.get("/api/analyze", async (req, res) => {
   }
 });
 
-// Real on-chain portfolio
+// Real on-chain portfolio (multi-chain via Etherscan V2)
 app.get("/api/portfolio/real", async (req, res) => {
   try {
-    const balance = await getOnChainBalance(WALLET_ADDR);
+    const portfolio = await getMultiChainPortfolio();
     
-    if (!balance) {
-      return res.status(500).json({ error: "Failed to fetch balance" });
+    if (!portfolio) {
+      return res.status(500).json({ error: "Failed to fetch portfolio" });
     }
     
-    // Get ETH price from CoinGecko
-    const prices = await getCryptoPrices();
-    const ethUsd = prices?.eth || 0;
-    
-    res.json({
-      eth: balance.eth,
-      usdc: balance.usdc,
-      totalUsd: (balance.eth * ethUsd) + balance.usdc,
-      address: WALLET_ADDR,
-      timestamp: Date.now()
-    });
+    res.json(portfolio);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

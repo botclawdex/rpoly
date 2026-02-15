@@ -743,15 +743,20 @@
           const realRes = await fetch(API + '/api/portfolio/real');
           const realData = await realRes.json();
           if (realData.totalUsd) {
-            // Update ETH balance
-            document.getElementById('eth-balance').textContent = realData.eth.toFixed(4) + ' ETH';
-            // Update USD value of ETH
-            document.getElementById('eth-usd').textContent = '$' + (realData.eth * 1967).toFixed(2);
-            // Update USDC balance
-            document.getElementById('usdc-balance').textContent = realData.usdc.toFixed(2) + ' USDC';
+            // Multi-chain: Base + Polygon
+            const baseEth = realData.base?.eth || 0;
+            const baseUsdc = realData.base?.usdc || 0;
+            const polyUsdc = realData.polygon?.usdc || 0;
+            
+            // Update ETH balance (Base)
+            document.getElementById('eth-balance').textContent = baseEth.toFixed(4) + ' ETH';
+            // Update USD value (rough estimate)
+            document.getElementById('eth-usd').textContent = '$' + (baseEth * 1967).toFixed(2);
+            // Update USDC balance (Base + Polygon)
+            document.getElementById('usdc-balance').textContent = (baseUsdc + polyUsdc).toFixed(2) + ' USDC';
             // Update total
             document.getElementById('portfolio-balance').textContent = '$' + realData.totalUsd.toFixed(2);
-            document.getElementById('portfolio-sub').textContent = 'ON-CHAIN';
+            document.getElementById('portfolio-sub').textContent = 'BASE + POLY';
           } else {
             throw new Error('No data');
           }
@@ -936,7 +941,12 @@
           // Add on-chain balance card to dashboard
           const balanceEl = document.getElementById('portfolio-balance');
           if (realData.totalUsd) {
-            balanceEl.innerHTML = '$' + realData.totalUsd.toFixed(2) + ' <span style="font-size: 12px; color: var(--accent);">ON-CHAIN</span>';
+            const baseEth = realData.base?.eth || 0;
+            const baseUsdc = realData.base?.usdc || 0;
+            const polyUsdc = realData.polygon?.usdc || 0;
+            const total = realData.totalUsd;
+            
+            balanceEl.innerHTML = '$' + total.toFixed(2) + ' <span style="font-size: 12px; color: var(--accent);">MULTI-CHAIN</span>';
             balanceEl.style.fontSize = '24px';
           }
         } catch (e) {

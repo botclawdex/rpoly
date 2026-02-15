@@ -129,13 +129,7 @@ Base Wallet → Polymarket Bridge (Base) → Polymarket (Polygon)
 
 Stored in: `memory/credentials.json`
 
-```json
-{
-  "farcaster": {
-    "custody_private_key": "0x4b6f9d09fedaf40f05d1bc8000a9feb211be9cfe9366b584bc5538a5bfeacce4"
-  }
-}
-```
+> ⚠️ **SECURITY:** Never commit private keys to version control!
 
 ## Running Locally
 
