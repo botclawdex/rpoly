@@ -1,1 +1,13 @@
 .vercel
+# Sensitive scripts - do not commit
+deposit.js
+send-usdc.js
+test-trade.js
+test-addr.js
+check-balance.js
+check-base.js
+check-poly.js
+*.env
+credentials.json
+memory/
+node_modules/
