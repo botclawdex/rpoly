@@ -25,20 +25,24 @@ let portfolio = {
 // ===== POLYMARKET HELPER FUNCTIONS =====
 
 // Fetch active markets from Polymarket
-async function getActiveMarkets(limit = 20) {
+async function getActiveMarkets(limit = 20, filter5m = false) {
   try {
     const response = await axios.get(`${GAMMA_API}/events`, {
       params: {
         active: true,
         closed: false,
-        limit: limit
+        limit: 100 // Get more to filter
       }
     });
     
-    const markets = [];
+    let markets = [];
     for (const event of response.data) {
       if (event.markets && event.markets.length > 0) {
         for (const market of event.markets) {
+          // Skip 5m markets if not requested
+          if (filter5m && !market.slug?.includes('5m')) continue;
+          if (!filter5m && market.slug?.includes('5m')) continue;
+          
           // Get current price from CLOB
           let yesPrice = null;
           let noPrice = null;
@@ -54,7 +58,6 @@ async function getActiveMarkets(limit = 20) {
               yesPrice = parseFloat(yesPriceRes.data.price);
               noPrice = parseFloat(noPriceRes.data.price);
             } catch (e) {
-              // Use prices from gamma if CLOB fails
               try {
                 const parsed = JSON.parse(market.outcomePrices || "[]");
                 yesPrice = parsed[0] || null;
@@ -76,13 +79,16 @@ async function getActiveMarkets(limit = 20) {
             tokenNo: market.clobTokenIds?.[1],
             endDate: market.endDate || market.end_date_utc,
             category: event.tags?.[0]?.label || "Unknown",
-            tags: event.tags?.map(t => t.label) || []
+            tags: event.tags?.map(t => t.label) || [],
+            is5m: market.slug?.includes('5m') || false
           });
         }
       }
     }
     
-    return markets;
+    // Sort by volume and limit
+    markets.sort((a, b) => b.volume - a.volume);
+    return markets.slice(0, limit);
   } catch (error) {
     console.error("Error fetching markets:", error.message);
     return [];
@@ -141,7 +147,20 @@ app.get("/api/dashboard", (req, res) => {
 app.get("/api/markets", async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 20;
-    const markets = await getActiveMarkets(limit);
+    const filter5m = req.query['5m'] === 'true';
+    const markets = await getActiveMarkets(limit, filter5m);
+    
+    res.json({ markets, timestamp: Date.now() });
+  } catch (error) {
+    res.status(500.json({ error: error.message });
+  }
+});
+
+// Get 5m markets only
+app.get("/api/markets/5m", async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 20;
+    const markets = await getActiveMarkets(limit, true);
     
     res.json({ markets, timestamp: Date.now() });
   } catch (error) {
@@ -175,34 +194,46 @@ app.get("/api/orderbook/:tokenId", async (req, res) => {
   }
 });
 
-// Scanner - find opportunities
+// Scanner - find opportunities (5m markets focus)
 app.get("/api/scan", async (req, res) => {
   try {
-    const markets = await getActiveMarkets(50);
+    const mode = req.query.mode || '5m'; // '5m' or 'all'
+    const is5m = mode === '5m';
+    
+    const markets = await getActiveMarkets(50, is5m);
     
     // Find opportunities based on volume and price
     const opportunities = markets
-      .filter(m => m.volume > 100000) // Only markets with significant volume
-      .sort((a, b) => b.volume - a.volume) // Sort by volume
+      .filter(m => m.volume > 10000) // Lower threshold for 5m markets
+      .sort((a, b) => b.volume - a.volume)
       .slice(0, 5)
       .map(m => {
-        const signal = m.yesPrice > 0.6 ? "STRONG_BUY" : 
-                      m.yesPrice > 0.4 ? "BUY" : 
-                      m.yesPrice < 0.3 ? "SELL" : "HOLD";
+        // For 5m markets: up/down logic
+        // For regular: yes/no logic
+        const is5mMarket = m.is5m;
+        const price = is5mMarket ? m.yesPrice : m.yesPrice;
+        
+        const signal = price > 0.6 ? "STRONG_BUY" : 
+                      price > 0.4 ? "BUY" : 
+                      price < 0.3 ? "SELL" : "HOLD";
         
         return {
           id: m.id,
           question: m.question,
           volume: m.volume,
-          yesPrice: m.yesPrice,
-          noPrice: m.noPrice,
+          price: price,
           signal,
-          reason: m.yesPrice > 0.5 ? "High probability" : "Low probability",
-          category: m.category
+          reason: is5mMarket 
+            ? (price > 0.5 ? "Bullish momentum" : "Bearish momentum")
+            : (price > 0.5 ? "High probability" : "Low probability"),
+          category: m.category,
+          is5m: is5mMarket,
+          tokenYes: m.tokenYes,
+          tokenNo: m.tokenNo
         };
       });
     
-    res.json({ opportunities, timestamp: Date.now() });
+    res.json({ opportunities, mode, timestamp: Date.now() });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
