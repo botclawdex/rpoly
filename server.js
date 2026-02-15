@@ -24,13 +24,11 @@ const WALLET_ADDR = "0xDEB4f464d46B1A3CDB4A29c41C6E908378993914";
 const USDC_ADDR = "0x833589fCD6eDb6E08f4c7C32D4f71B54bdA02913"; // Base USDC
 const POLYGON_USDC_ADDR = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"; // Polygon USDC
 
-// ===== ETHERSCAN V2 API (works on all networks) =====
-const ETHERSCAN_V2_API = {
-  base: "https://api.basescan.org/api/v2",
-  polygon: "https://api.polygonscan.com/api/v2",
-  ethereum: "https://api.etherscan.io/api/v2"
+// ===== PUBLIC RPC ENDPOINTS (free, no API key needed) =====
+const RPC = {
+  base: "https://mainnet.base.org",
+  polygon: "https://polygon-rpc.com"
 };
-const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || "HSHV72NNW6KVQA88YB5BFSZHTVPFWC2GJU";
 
 // Mock portfolio for demo
 let portfolio = {
@@ -244,14 +242,23 @@ async function getCryptoPrices() {
   }
 }
 
-// Get native token balance (ETH/POL/MATIC) from Etherscan V2 API
+// Get native token balance (ETH/POL) via RPC
 async function getNativeBalance(chain) {
   try {
-    const url = `${ETHERSCAN_V2_API[chain]}/?module=account&action=balance&address=${WALLET_ADDR}&tag=latest&apikey=${ETHERSCAN_API_KEY}`;
-    const res = await axios.get(url, { timeout: 10000 });
+    const rpc = RPC[chain];
+    const body = JSON.stringify({
+      jsonrpc: "2.0",
+      method: "eth_getBalance",
+      params: [WALLET_ADDR, "latest"],
+      id: 1
+    });
+    const res = await axios.post(rpc, body, {
+      headers: { "Content-Type": "application/json" },
+      timeout: 10000
+    });
     
-    if (res.data.status === "1") {
-      const wei = parseInt(res.data.result);
+    if (res.data.result) {
+      const wei = parseInt(res.data.result, 16);
       return wei / 1e18;
     }
     return 0;
@@ -261,18 +268,26 @@ async function getNativeBalance(chain) {
   }
 }
 
-// Get ERC-20 token balance from Etherscan V2 API
+// Get ERC-20 token balance via RPC
 async function getTokenBalance(chain, tokenAddr) {
   try {
-    const url = `${ETHERSCAN_V2_API[chain]}/?module=account&action=tokenbalance&address=${WALLET_ADDR}&contractaddress=${tokenAddr}&tag=latest&apikey=${ETHERSCAN_API_KEY}`;
-    const res = await axios.get(url, { timeout: 10000 });
+    const rpc = RPC[chain];
+    const data = "0x70a08231000000000000000000000000" + WALLET_ADDR.slice(2).toLowerCase();
+    const body = JSON.stringify({
+      jsonrpc: "2.0",
+      method: "eth_call",
+      params: [{ to: tokenAddr, data: data }, "latest"],
+      id: 1
+    });
+    const res = await axios.post(rpc, body, {
+      headers: { "Content-Type": "application/json" },
+      timeout: 10000
+    });
     
-    if (res.data.status === "1") {
+    if (res.data.result) {
+      const wei = parseInt(res.data.result, 16);
       // USDC has 6 decimals
-      const decimals = tokenAddr.toLowerCase() === USDC_ADDR.toLowerCase() || 
-                       tokenAddr.toLowerCase() === POLYGON_USDC_ADDR.toLowerCase() ? 6 : 18;
-      const wei = parseInt(res.data.result);
-      return wei / Math.pow(10, decimals);
+      return wei / 1e6;
     }
     return 0;
   } catch (e) {
