@@ -1,5 +1,5 @@
 // rPoly - AI Polymarket Trading Bot
-// v1.3.1 - Analyze fix
+// v1.4.0 - CLOB Trade Endpoint
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
@@ -456,6 +456,46 @@ app.get("/api/chart", async (req, res) => {
       c: c[4]
     }));
     res.json({ candles, timestamp: Date.now() });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Execute trade (simulated for now - full CLOB signing requires wallet)
+app.post("/api/trade", async (req, res) => {
+  try {
+    const { marketSlug, side, amount } = req.body;
+    
+    // Validate
+    if (!marketSlug || !side || !amount) {
+      return res.status(400).json({ error: "Missing required fields: marketSlug, side, amount" });
+    }
+    
+    if (amount > 0.1) {
+      return res.status(400).json({ error: "Max trade amount is 0.1 USDC" });
+    }
+    
+    // For now, return simulated trade
+    // Full implementation requires:
+    // 1. Create order with EIP712 signature
+    // 2. Sign with wallet private key  
+    // 3. POST to CLOB /orders endpoint
+    
+    const trade = {
+      id: "trade_" + Date.now(),
+      marketSlug,
+      side: side.toUpperCase(),
+      amount: parseFloat(amount),
+      status: "SIMULATED",
+      message: "CLOB signing not implemented yet - trade is simulated",
+      timestamp: Date.now()
+    };
+    
+    res.json({ 
+      success: true, 
+      trade,
+      note: "This is a simulated trade. Full CLOB integration requires EIP712 order signing."
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
