@@ -27,27 +27,37 @@ let portfolio = {
 // Fetch markets from Polymarket (includes 5m markets)
 async function getMarkets(limit = 50, filter5m = false) {
   try {
+    // First try to get regular markets
     const response = await axios.get(`${GAMMA_API}/markets`, {
       params: {
         active: true,
         closed: false,
-        limit: 200 // Get more to filter
+        limit: 200
       },
       timeout: 8000
     });
     
     let markets = [];
+    
+    // If filtering for 5m markets, we need special handling
+    // 5m markets have slug pattern: btc-updown-5m-{timestamp}
+    // They're fetched separately by their slug
+    
+    // Get all markets from response
     for (const market of response.data) {
-      // Skip closed markets
+      // Skip closed or inactive
       if (market.closed) continue;
       if (!market.active) continue;
       
-      // Filter 5m markets (BTC up/down every 5 minutes)
-      const is5m = market.slug?.includes('updown') && market.slug?.includes('5m');
+      // Check if it's a 5m market
+      const is5m = market.slug?.includes('updown') && 
+                   (market.slug?.includes('5m') || market.slug?.match(/updown-\d+/));
+      
+      // Apply filter
       if (filter5m && !is5m) continue;
       if (!filter5m && is5m) continue;
       
-      // Get prices
+      // Parse prices
       let yesPrice = null;
       let noPrice = null;
       
@@ -57,12 +67,18 @@ async function getMarkets(limit = 50, filter5m = false) {
         noPrice = parsed[1] ? parseFloat(parsed[1]) : null;
       } catch {}
       
+      // Get category from events if available
+      let category = market.category || "Unknown";
+      if (market.events && market.events.length > 0) {
+        category = market.events[0].category || market.category || "Crypto";
+      }
+      
       markets.push({
         id: market.id,
         question: market.question,
         slug: market.slug,
-        volume: market.volume || market.volume24hr || 0,
-        liquidity: market.liquidity || 0,
+        volume: market.volumeNum || market.volume || market.volume24hr || 0,
+        liquidity: market.liquidityNum || market.liquidity || 0,
         yesPrice: yesPrice,
         noPrice: noPrice,
         tokenYes: market.clobTokenIds?.[0],
@@ -71,7 +87,7 @@ async function getMarkets(limit = 50, filter5m = false) {
         is5m: is5m,
         resolved: false,
         acceptingOrders: market.acceptingOrders || true,
-        category: market.category || "Unknown"
+        category: category
       });
       
       if (markets.length >= limit * 2) break;
