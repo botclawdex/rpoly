@@ -11,8 +11,8 @@ app.use(express.static("."));
 const PORT = process.env.PORT || 3001;
 
 // ===== POLYMARKET API =====
-const POLYMARKET_API = "https://clob.polymarket.com";
-const POLYMARKET_MARKETS = "https://clob.polymarket.com/markets";
+const GAMMA_API = "https://gamma-api.polymarket.com";
+const CLOB_API = "https://clob.polymarket.com";
 
 // Mock portfolio for demo
 let portfolio = {
@@ -22,11 +22,108 @@ let portfolio = {
   history: []
 };
 
+// ===== POLYMARKET HELPER FUNCTIONS =====
+
+// Fetch active markets from Polymarket
+async function getActiveMarkets(limit = 20) {
+  try {
+    const response = await axios.get(`${GAMMA_API}/events`, {
+      params: {
+        active: true,
+        closed: false,
+        limit: limit
+      }
+    });
+    
+    const markets = [];
+    for (const event of response.data) {
+      if (event.markets && event.markets.length > 0) {
+        for (const market of event.markets) {
+          // Get current price from CLOB
+          let yesPrice = null;
+          let noPrice = null;
+          
+          if (market.clobTokenIds && market.clobTokenIds.length >= 2) {
+            try {
+              const yesPriceRes = await axios.get(`${CLOB_API}/price`, {
+                params: { token_id: market.clobTokenIds[0], side: 'buy' }
+              });
+              const noPriceRes = await axios.get(`${CLOB_API}/price`, {
+                params: { token_id: market.clobTokenIds[1], side: 'buy' }
+              });
+              yesPrice = parseFloat(yesPriceRes.data.price);
+              noPrice = parseFloat(noPriceRes.data.price);
+            } catch (e) {
+              // Use prices from gamma if CLOB fails
+              try {
+                const parsed = JSON.parse(market.outcomePrices || "[]");
+                yesPrice = parsed[0] || null;
+                noPrice = parsed[1] || null;
+              } catch {}
+            }
+          }
+          
+          markets.push({
+            id: market.id,
+            question: market.question,
+            description: event.description || "",
+            slug: market.slug,
+            volume: market.volume || market.volume24hr || 0,
+            liquidity: market.liquidity || 0,
+            yesPrice: yesPrice,
+            noPrice: noPrice,
+            tokenYes: market.clobTokenIds?.[0],
+            tokenNo: market.clobTokenIds?.[1],
+            endDate: market.endDate || market.end_date_utc,
+            category: event.tags?.[0]?.label || "Unknown",
+            tags: event.tags?.map(t => t.label) || []
+          });
+        }
+      }
+    }
+    
+    return markets;
+  } catch (error) {
+    console.error("Error fetching markets:", error.message);
+    return [];
+  }
+}
+
+// Get market details
+async function getMarketDetails(marketIdOrSlug) {
+  try {
+    const response = await axios.get(`${GAMMA_API}/markets`, {
+      params: { id: marketIdOrSlug }
+    });
+    
+    if (response.data && response.data.length > 0) {
+      return response.data[0];
+    }
+    return null;
+  } catch (error) {
+    console.error("Error fetching market:", error.message);
+    return null;
+  }
+}
+
+// Get orderbook for a market
+async function getOrderbook(tokenId) {
+  try {
+    const response = await axios.get(`${CLOB_API}/book`, {
+      params: { token_id: tokenId }
+    });
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching orderbook:", error.message);
+    return null;
+  }
+}
+
 // ===== ENDPOINTS =====
 
 // Health check
 app.get("/health", (req, res) => {
-  res.json({ status: "ok", service: "rPoly API", version: "1.0.0" });
+  res.json({ status: "ok", service: "rPoly API", version: "1.1.0", network: "polymarket" });
 });
 
 // Dashboard - portfolio overview
@@ -43,78 +140,36 @@ app.get("/api/dashboard", (req, res) => {
 // Get markets list
 app.get("/api/markets", async (req, res) => {
   try {
-    // In production: fetch real markets from Polymarket
-    // For now: mock data
-    const markets = [
-      {
-        id: "1",
-        question: "Will BTC reach $100K by end of 2026?",
-        description: "Bitcoin price prediction",
-        volume: 1250000,
-        liquidity: 890000,
-        yesPrice: 0.42,
-        noPrice: 0.58,
-        endDate: "2026-12-31",
-        category: "crypto"
-      },
-      {
-        id: "2",
-        question: "Will ETH flip BTC market cap in 2026?",
-        description: "Ethereum Flippening",
-        volume: 890000,
-        liquidity: 650000,
-        yesPrice: 0.18,
-        noPrice: 0.82,
-        endDate: "2026-12-31",
-        category: "crypto"
-      },
-      {
-        id: "3",
-        question: "Will there be a crypto regulation bill passed in 2026?",
-        description: "US Crypto Regulation",
-        volume: 560000,
-        liquidity: 420000,
-        yesPrice: 0.65,
-        noPrice: 0.35,
-        endDate: "2026-12-31",
-        category: "regulation"
-      },
-      {
-        id: "4",
-        question: "Will Base TVL exceed $50B in 2026?",
-        description: "Base Network TVL",
-        volume: 340000,
-        liquidity: 280000,
-        yesPrice: 0.38,
-        noPrice: 0.62,
-        endDate: "2026-12-31",
-        category: "defi"
-      },
-      {
-        id: "5",
-        question: "Will AI agents manage >$10B onchain by 2026?",
-        description: "AI Agents TVL",
-        volume: 210000,
-        liquidity: 180000,
-        yesPrice: 0.55,
-        noPrice: 0.45,
-        endDate: "2026-12-31",
-        category: "ai"
-      },
-      {
-        id: "6",
-        question: "Will Trump declare BTC reserve in 2026?",
-        description: "US Bitcoin Reserve",
-        volume: 2100000,
-        liquidity: 1500000,
-        yesPrice: 0.35,
-        noPrice: 0.65,
-        endDate: "2026-12-31",
-        category: "politics"
-      }
-    ];
+    const limit = parseInt(req.query.limit) || 20;
+    const markets = await getActiveMarkets(limit);
     
     res.json({ markets, timestamp: Date.now() });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get single market details
+app.get("/api/market/:id", async (req, res) => {
+  try {
+    const market = await getMarketDetails(req.params.id);
+    if (!market) {
+      return res.status(404).json({ error: "Market not found" });
+    }
+    res.json({ market, timestamp: Date.now() });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get orderbook
+app.get("/api/orderbook/:tokenId", async (req, res) => {
+  try {
+    const orderbook = await getOrderbook(req.params.tokenId);
+    if (!orderbook) {
+      return res.status(404).json({ error: "Orderbook not found" });
+    }
+    res.json({ orderbook, timestamp: Date.now() });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -123,27 +178,31 @@ app.get("/api/markets", async (req, res) => {
 // Scanner - find opportunities
 app.get("/api/scan", async (req, res) => {
   try {
-    // Find markets with high volume or price moves
-    const markets = [
-      {
-        id: "6",
-        question: "Will Trump declare BTC reserve in 2026?",
-        volume: 2100000,
-        change24h: 15.2,
-        signal: "STRONG_BUY",
-        reason: "Volume spike + positive sentiment"
-      },
-      {
-        id: "1",
-        question: "Will BTC reach $100K by end of 2026?",
-        volume: 1250000,
-        change24h: 8.5,
-        signal: "BUY",
-        reason: "Volume up, BTC momentum"
-      }
-    ];
+    const markets = await getActiveMarkets(50);
     
-    res.json({ opportunities: markets, timestamp: Date.now() });
+    // Find opportunities based on volume and price
+    const opportunities = markets
+      .filter(m => m.volume > 100000) // Only markets with significant volume
+      .sort((a, b) => b.volume - a.volume) // Sort by volume
+      .slice(0, 5)
+      .map(m => {
+        const signal = m.yesPrice > 0.6 ? "STRONG_BUY" : 
+                      m.yesPrice > 0.4 ? "BUY" : 
+                      m.yesPrice < 0.3 ? "SELL" : "HOLD";
+        
+        return {
+          id: m.id,
+          question: m.question,
+          volume: m.volume,
+          yesPrice: m.yesPrice,
+          noPrice: m.noPrice,
+          signal,
+          reason: m.yesPrice > 0.5 ? "High probability" : "Low probability",
+          category: m.category
+        };
+      });
+    
+    res.json({ opportunities, timestamp: Date.now() });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -242,6 +301,18 @@ app.get("/api/settings", (req, res) => {
     autoTrade: false,
     notifications: true
   });
+});
+
+// Get available categories/tags
+app.get("/api/tags", async (req, res) => {
+  try {
+    const response = await axios.get(`${GAMMA_API}/tags`, {
+      params: { limit: 50 }
+    });
+    res.json({ tags: response.data, timestamp: Date.now() });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.post("/api/settings", (req, res) => {
