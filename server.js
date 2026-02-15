@@ -24,10 +24,109 @@ let portfolio = {
 
 // ===== POLYMARKET HELPER FUNCTIONS =====
 
+// Get current 5-minute window timestamp
+function getCurrent5mWindowTs() {
+  const now = Date.now();
+  return Math.floor(now / 300000) * 300000;
+}
+
 // Fetch markets from Polymarket (includes 5m markets)
 async function getMarkets(limit = 50, filter5m = false) {
   try {
-    // First try to get regular markets
+    // For 5m markets, we need to calculate the current window timestamp
+    // and query by slug directly
+    if (filter5m) {
+      const windowTs = getCurrent5mWindowTs();
+      const slug = `btc-updown-5m-${windowTs}`;
+      
+      try {
+        const response = await axios.get(`${GAMMA_API}/markets`, {
+          params: { slug: slug },
+          timeout: 8000
+        });
+        
+        if (response.data && response.data.length > 0) {
+          const market = response.data[0];
+          
+          // Parse prices
+          let yesPrice = null;
+          let noPrice = null;
+          
+          try {
+            const parsed = JSON.parse(market.outcomePrices || "[]");
+            yesPrice = parsed[0] ? parseFloat(parsed[0]) : null;
+            noPrice = parsed[1] ? parseFloat(parsed[1]) : null;
+          } catch {}
+          
+          return [{
+            id: market.id,
+            question: market.question,
+            slug: market.slug,
+            volume: market.volumeNum || market.volume || market.volume24hr || 0,
+            liquidity: market.liquidityNum || market.liquidity || 0,
+            yesPrice: yesPrice,
+            noPrice: noPrice,
+            tokenYes: market.clobTokenIds?.[0],
+            tokenNo: market.clobTokenIds?.[1],
+            endDate: market.endDate || market.end_date_utc,
+            is5m: true,
+            resolved: false,
+            acceptingOrders: market.acceptingOrders || true,
+            category: "Crypto 5m"
+          }];
+        }
+      } catch (e) {
+        console.log("5m market not found for slug:", slug, e.message);
+      }
+      
+      // Also try to get recent 5m windows (last few)
+      const markets = [];
+      for (let i = 0; i <= 3; i++) {
+        const pastWindowTs = getCurrent5mWindowTs() - (i * 300000);
+        const pastSlug = `btc-updown-5m-${pastWindowTs}`;
+        
+        try {
+          const response = await axios.get(`${GAMMA_API}/markets`, {
+            params: { slug: pastSlug },
+            timeout: 5000
+          });
+          
+          if (response.data && response.data.length > 0) {
+            const market = response.data[0];
+            
+            let yesPrice = null;
+            let noPrice = null;
+            
+            try {
+              const parsed = JSON.parse(market.outcomePrices || "[]");
+              yesPrice = parsed[0] ? parseFloat(parsed[0]) : null;
+              noPrice = parsed[1] ? parseFloat(parsed[1]) : null;
+            } catch {}
+            
+            markets.push({
+              id: market.id,
+              question: market.question,
+              slug: market.slug,
+              volume: market.volumeNum || market.volume || market.volume24hr || 0,
+              liquidity: market.liquidityNum || market.liquidity || 0,
+              yesPrice: yesPrice,
+              noPrice: noPrice,
+              tokenYes: market.clobTokenIds?.[0],
+              tokenNo: market.clobTokenIds?.[1],
+              endDate: market.endDate || market.end_date_utc,
+              is5m: true,
+              resolved: market.resolved || false,
+              acceptingOrders: market.acceptingOrders || false,
+              category: "Crypto 5m"
+            });
+          }
+        } catch {}
+      }
+      
+      return markets;
+    }
+    
+    // Regular markets (non-5m)
     const response = await axios.get(`${GAMMA_API}/markets`, {
       params: {
         active: true,
@@ -39,23 +138,17 @@ async function getMarkets(limit = 50, filter5m = false) {
     
     let markets = [];
     
-    // If filtering for 5m markets, we need special handling
-    // 5m markets have slug pattern: btc-updown-5m-{timestamp}
-    // They're fetched separately by their slug
-    
-    // Get all markets from response
+    // Get all markets from response, filter out 5m
     for (const market of response.data) {
       // Skip closed or inactive
       if (market.closed) continue;
       if (!market.active) continue;
       
-      // Check if it's a 5m market
+      // Skip 5m markets for regular list
       const is5m = market.slug?.includes('updown') && 
                    (market.slug?.includes('5m') || market.slug?.match(/updown-\d+/));
       
-      // Apply filter
-      if (filter5m && !is5m) continue;
-      if (!filter5m && is5m) continue;
+      if (is5m) continue;
       
       // Parse prices
       let yesPrice = null;
@@ -84,7 +177,7 @@ async function getMarkets(limit = 50, filter5m = false) {
         tokenYes: market.clobTokenIds?.[0],
         tokenNo: market.clobTokenIds?.[1],
         endDate: market.endDate || market.end_date_utc,
-        is5m: is5m,
+        is5m: false,
         resolved: false,
         acceptingOrders: market.acceptingOrders || true,
         category: category
@@ -141,7 +234,7 @@ async function getOrderbook(tokenId) {
 
 // Health check
 app.get("/health", (req, res) => {
-  res.json({ status: "ok", service: "rPoly API", version: "1.1.0", network: "polymarket" });
+  res.json({ status: "ok", service: "rPoly API", version: "1.2.0", network: "polymarket" });
 });
 
 // Dashboard - portfolio overview
