@@ -24,67 +24,65 @@ let portfolio = {
 
 // ===== POLYMARKET HELPER FUNCTIONS =====
 
-// Fetch active markets from Polymarket
-async function getActiveMarkets(limit = 20, filter5m = false) {
+// Fetch markets from Polymarket (includes 5m markets)
+async function getMarkets(limit = 50, filter5m = false) {
   try {
-    const response = await axios.get(`${GAMMA_API}/events`, {
+    const response = await axios.get(`${GAMMA_API}/markets`, {
       params: {
         active: true,
         closed: false,
-        limit: 50 // Limit to avoid timeout
+        limit: limit
       },
-      timeout: 8000 // 8 second timeout
+      timeout: 8000
     });
     
     let markets = [];
-    for (const event of response.data) {
-      if (event.markets && event.markets.length > 0) {
-        for (const market of event.markets) {
-          // Skip 5m markets if not requested
-          if (filter5m && !market.slug?.includes('5m')) continue;
-          if (!filter5m && market.slug?.includes('5m')) continue;
-          
-          // Use prices from Gamma API (no extra calls)
-          let yesPrice = null;
-          let noPrice = null;
-          
-          try {
-            const parsed = JSON.parse(market.outcomePrices || "[]");
-            yesPrice = parsed[0] ? parseFloat(parsed[0]) : null;
-            noPrice = parsed[1] ? parseFloat(parsed[1]) : null;
-          } catch {}
-          
-          markets.push({
-            id: market.id,
-            question: market.question,
-            description: event.description || "",
-            slug: market.slug,
-            volume: market.volume || market.volume24hr || 0,
-            liquidity: market.liquidity || 0,
-            yesPrice: yesPrice,
-            noPrice: noPrice,
-            tokenYes: market.clobTokenIds?.[0],
-            tokenNo: market.clobTokenIds?.[1],
-            endDate: market.endDate || market.end_date_utc,
-            category: event.tags?.[0]?.label || "Unknown",
-            tags: event.tags?.map(t => t.label) || [],
-            is5m: market.slug?.includes('5m') || false
-          });
-          
-          // Stop early if we have enough (avoid timeout)
-          if (markets.length >= limit * 2) break;
-        }
-      }
+    for (const market of response.data) {
+      // Skip if filter doesn't match
+      if (filter5m && !market.slug?.includes('5m')) continue;
+      if (!filter5m && market.slug?.includes('5m')) continue;
+      
+      // Get prices
+      let yesPrice = null;
+      let noPrice = null;
+      
+      try {
+        const parsed = JSON.parse(market.outcomePrices || "[]");
+        yesPrice = parsed[0] ? parseFloat(parsed[0]) : null;
+        noPrice = parsed[1] ? parseFloat(parsed[1]) : null;
+      } catch {}
+      
+      markets.push({
+        id: market.id,
+        question: market.question,
+        slug: market.slug,
+        volume: market.volume || market.volume24hr || 0,
+        liquidity: market.liquidity || 0,
+        yesPrice: yesPrice,
+        noPrice: noPrice,
+        tokenYes: market.clobTokenIds?.[0],
+        tokenNo: market.clobTokenIds?.[1],
+        endDate: market.endDate || market.end_date_utc,
+        is5m: market.slug?.includes('5m') || false,
+        resolved: market.resolved || false,
+        acceptingOrders: market.acceptingOrders || true
+      });
+      
       if (markets.length >= limit * 2) break;
     }
     
-    // Sort by volume and limit
+    // Sort by volume
     markets.sort((a, b) => b.volume - a.volume);
     return markets.slice(0, limit);
   } catch (error) {
     console.error("Error fetching markets:", error.message);
     return [];
   }
+}
+
+// Fetch active markets from Polymarket (legacy - uses /events)
+async function getActiveMarkets(limit = 20, filter5m = false) {
+  return getMarkets(limit, filter5m);
 }
 
 // Get market details

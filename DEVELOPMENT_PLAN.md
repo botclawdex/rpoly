@@ -16,19 +16,16 @@
 
 ---
 
-## v1.1.0 - Real API Integration (DONE ✅)
-- [x] Connect to Polymarket API (real market data) ✅
-- [x] 5-minute markets filter ✅
-- [ ] Real-time price updates (WebSocket)
-- [ ] Connect to Twitter/X API for sentiment
+## v1.2.0 - 5m Markets Focus (IN PROGRESS)
+- [x] Use /markets API instead of /events (5m markets there) ✅
+- [ ] Data API → real portfolio (/positions)
+- [ ] WebSocket → real-time prices
 
 ### Tasks:
-- [x] Integrate Polymarket Gamma API ✅
-- [x] Add CLOB API for prices ✅
-- [x] Add 5m markets filter ✅
-- [ ] Add WebSocket for real-time prices
-- [ ] Connect Twitter sentiment analysis
-- [ ] Add real trading execution
+- [x] Switch to Gamma /markets endpoint ✅
+- [x] Filter for 5m markets ✅
+- [ ] Add Data API for positions
+- [ ] Add WebSocket for real-time
 
 ---
 
