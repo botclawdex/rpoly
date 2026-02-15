@@ -31,16 +31,21 @@ async function getMarkets(limit = 50, filter5m = false) {
       params: {
         active: true,
         closed: false,
-        limit: limit
+        limit: 200 // Get more to filter
       },
       timeout: 8000
     });
     
     let markets = [];
     for (const market of response.data) {
-      // Skip if filter doesn't match
-      if (filter5m && !market.slug?.includes('5m')) continue;
-      if (!filter5m && market.slug?.includes('5m')) continue;
+      // Skip closed markets
+      if (market.closed) continue;
+      if (!market.active) continue;
+      
+      // Filter 5m markets (BTC up/down every 5 minutes)
+      const is5m = market.slug?.includes('updown') && market.slug?.includes('5m');
+      if (filter5m && !is5m) continue;
+      if (!filter5m && is5m) continue;
       
       // Get prices
       let yesPrice = null;
@@ -63,9 +68,10 @@ async function getMarkets(limit = 50, filter5m = false) {
         tokenYes: market.clobTokenIds?.[0],
         tokenNo: market.clobTokenIds?.[1],
         endDate: market.endDate || market.end_date_utc,
-        is5m: market.slug?.includes('5m') || false,
-        resolved: market.resolved || false,
-        acceptingOrders: market.acceptingOrders || true
+        is5m: is5m,
+        resolved: false,
+        acceptingOrders: market.acceptingOrders || true,
+        category: market.category || "Unknown"
       });
       
       if (markets.length >= limit * 2) break;
@@ -146,13 +152,32 @@ app.get("/api/markets", async (req, res) => {
   }
 });
 
-// Get 5m markets only
+// Get 5m markets only (short-term BTC up/down)
 app.get("/api/markets/5m", async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 20;
-    const markets = await getActiveMarkets(limit, true);
+    const markets = await getMarkets(limit, true);
     
-    res.json({ markets, timestamp: Date.now() });
+    res.json({ markets, type: "5m", timestamp: Date.now() });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get long-term markets (non-5m)
+app.get("/api/markets/long", async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 20;
+    const category = req.query.category;
+    const markets = await getMarkets(limit, false);
+    
+    // Filter by category if provided
+    let filtered = markets;
+    if (category) {
+      filtered = markets.filter(m => m.category?.toLowerCase() === category.toLowerCase());
+    }
+    
+    res.json({ markets: filtered, type: "long", category: category || "all", timestamp: Date.now() });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -187,10 +212,10 @@ app.get("/api/orderbook/:tokenId", async (req, res) => {
 // Scanner - find opportunities (5m markets focus)
 app.get("/api/scan", async (req, res) => {
   try {
-    const mode = req.query.mode || '5m'; // '5m' or 'all'
+    const mode = req.query.mode || '5m'; // '5m' or 'long'
     const is5m = mode === '5m';
     
-    const markets = await getActiveMarkets(50, is5m);
+    const markets = await getMarkets(50, is5m);
     
     // Find opportunities based on volume and price
     const opportunities = markets
