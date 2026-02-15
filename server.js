@@ -17,11 +17,10 @@ const CLOB_API = "https://clob.polymarket.com";
 // ===== BINANCE API =====
 const BINANCE_API = "https://api.binance.com";
 
-// ===== BASESCAN API =====
-const BASESCAN_API = "https://api.basescan.org/api";
-const BASESCAN_KEY = process.env.BASESCAN_KEY || "HSHV72NNW6KVQA88YB5BFSZHTVPFWC2GJU";
+// ===== COINBASE RPC (for on-chain balance) =====
+const COINBASE_RPC = "https://api.developer.coinbase.com/rpc/v1/base/oMc2GB9cTF7I8zaD11NHTuIVDxECmWz1";
 const WALLET_ADDR = "0xDEB4f464d46B1A3CDB4A29c41C6E908378993914";
-const USDC_ADDR = "0x833589fCD6eDb6E08f4c7C32D4f71B54bdA02913"; // USDC on Base
+const USDC_ADDR = "0x833589fCD6eDb6E08f4c7C32D4f71B54bdA02913";
 
 // Mock portfolio for demo
 let portfolio = {
@@ -233,36 +232,40 @@ async function getBTCPrice() {
   }
 }
 
-// ===== BASESCAN API HELPERS =====
+// ===== COINBASE RPC HELPERS =====
 
 async function getOnChainBalance(address) {
   try {
     // ETH balance
-    const ethRes = await axios.get(`${BASESCAN_API}/api`, {
-      params: {
-        module: "account",
-        action: "balance",
-        address: address,
-        tag: "latest",
-        apikey: BASESCAN_KEY
-      }
+    const ethBody = JSON.stringify({
+      jsonrpc: "2.0",
+      method: "eth_getBalance",
+      params: [address, "latest"],
+      id: 1
     });
+    const ethRes = await axios.post(COINBASE_RPC, ethBody, {
+      headers: { "Content-Type": "application/json" }
+    });
+    const ethWei = parseInt(ethRes.data.result, 16);
+    const eth = ethWei / 1e18;
     
-    // USDC balance
-    const usdcRes = await axios.get(`${BASESCAN_API}/api`, {
-      params: {
-        module: "account",
-        action: "tokenbalance",
-        address: address,
-        contractaddress: USDC_ADDR,
-        tag: "latest",
-        apikey: BASESCAN_KEY
-      }
+    // USDC balance (ERC-20 balanceOf)
+    const usdcData = "0x70a08231000000000000000000000000" + address.slice(2).toLowerCase();
+    const usdcBody = JSON.stringify({
+      jsonrpc: "2.0",
+      method: "eth_call",
+      params: [{ to: USDC_ADDR, data: usdcData }, "latest"],
+      id: 1
     });
+    const usdcRes = await axios.post(COINBASE_RPC, usdcBody, {
+      headers: { "Content-Type": "application/json" }
+    });
+    const usdcWei = parseInt(usdcRes.data.result, 16);
+    const usdc = usdcWei / 1e6;
     
     return {
-      eth: parseFloat(ethRes.data.result) / 1e18,
-      usdc: parseFloat(usdcRes.data.result) / 1e6,
+      eth: eth,
+      usdc: usdc,
       address: address,
       timestamp: Date.now()
     };
