@@ -440,10 +440,11 @@
       <button class="active" onclick="showSection('dashboard')">[01] DASHBOARD</button>
       <button onclick="showSection('markets')">[02] MARKETS</button>
       <button onclick="showSection('analyze')">[03] ANALYZE</button>
-      <button onclick="showSection('scanner')">[04] SCANNER</button>
-      <button onclick="showSection('signals')">[05] SIGNALS</button>
-      <button onclick="showSection('portfolio')">[06] PORTFOLIO</button>
-      <button onclick="showSection('settings')">[07] SETTINGS</button>
+      <button onclick="showSection('chart')">[04] CHART</button>
+      <button onclick="showSection('scanner')">[05] SCANNER</button>
+      <button onclick="showSection('signals')">[06] SIGNALS</button>
+      <button onclick="showSection('portfolio')">[07] PORTFOLIO</button>
+      <button onclick="showSection('settings')">[08] SETTINGS</button>
     </nav>
     
     <!-- Dashboard Section -->
@@ -528,6 +529,16 @@
           <div style="padding: 40px; text-align: center; color: var(--text-secondary);">
             Loading analysis...
           </div>
+        </div>
+      </div>
+    </section>
+    
+    <!-- Chart Section -->
+    <section id="chart" class="section">
+      <div class="card">
+        <div class="card-label">BTC/USD Chart (24h)</div>
+        <div id="chart-container" style="padding: 20px; text-align: center; color: var(--text-secondary);">
+          Loading chart...
         </div>
       </div>
     </section>
@@ -649,6 +660,7 @@
       if (id === 'dashboard') loadDashboard();
       if (id === 'markets') loadMarkets();
       if (id === 'analyze') loadAnalyze();
+      if (id === 'chart') loadChart();
       if (id === 'scanner') loadScanner();
       if (id === 'signals') loadSignals();
       if (id === 'portfolio') loadPortfolio();
@@ -754,6 +766,50 @@
         document.getElementById('today-trades').textContent = '0';
       } catch (e) {
         console.error('Dashboard error:', e);
+      }
+    }
+    
+    // Chart function
+    async function loadChart() {
+      try {
+        const res = await fetch(API + '/api/chart');
+        const data = await res.json();
+        
+        const container = document.getElementById('chart-container');
+        
+        if (!data.candles || data.candles.length === 0) {
+          container.innerHTML = '<div style="color: var(--danger)">No chart data</div>';
+          return;
+        }
+        
+        // Simple ASCII chart
+        const prices = data.candles.map(c => c.c);
+        const min = Math.min(...prices);
+        const max = Math.max(...prices);
+        const range = max - min;
+        
+        let chart = '<div style="font-family: monospace; font-size: 10px; line-height: 1.2;">';
+        chart += '<div style="margin-bottom: 5px; color: var(--accent);">$' + max.toFixed(0) + ' ▲</div>';
+        
+        // Create simple bar representation (last 24 candles)
+        const recent = prices.slice(-24);
+        const recentMin = Math.min(...recent);
+        const recentMax = Math.max(...recent);
+        
+        for (let i = recent.length - 1; i >= 0; i--) {
+          const p = recent[i];
+          const bar = Math.round((p - recentMin) / (recentMax - recentMin) * 20);
+          const barStr = '█'.repeat(bar) + '░'.repeat(20 - bar);
+          chart += '<div style="color: var(--text-dim);">' + barStr + ' $' + p.toFixed(0) + '</div>';
+        }
+        
+        chart += '<div style="margin-top: 5px; color: var(--accent);">$' + recentMin.toFixed(0) + ' ▼</div>';
+        chart += '<div style="margin-top: 10px; color: var(--text-secondary); font-size: 11px;">24h High: $' + recentMax.toFixed(0) + ' | 24h Low: $' + recentMin.toFixed(0) + '</div>';
+        chart += '</div>';
+        
+        container.innerHTML = chart;
+      } catch (e) {
+        document.getElementById('chart-container').innerHTML = '<div style="color: var(--danger)">Error: ' + e.message + '</div>';
       }
     }
     

@@ -443,6 +443,24 @@ app.get("/api/portfolio/real", async (req, res) => {
   }
 });
 
+// Get BTC chart data
+app.get("/api/chart", async (req, res) => {
+  try {
+    const response = await axios.get(`${COINGECKO_API}/coins/bitcoin/ohlc?vs_currency=usd&days=1`);
+    // Format: [timestamp, open, high, low, close]
+    const candles = response.data.map(c => ({
+      t: c[0],
+      o: c[1],
+      h: c[2],
+      l: c[3],
+      c: c[4]
+    }));
+    res.json({ candles, timestamp: Date.now() });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get single market details
 app.get("/api/market/:id", async (req, res) => {
   try {
