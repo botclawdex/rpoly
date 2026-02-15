@@ -1,5 +1,5 @@
 // rPoly - AI Polymarket Trading Bot
-// v1.3.0 - Analyze + Real Portfolio
+// v1.3.1 - Analyze fix
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
