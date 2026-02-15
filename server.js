@@ -216,18 +216,20 @@ async function getActiveMarkets(limit = 20, filter5m = false) {
   return getMarkets(limit, filter5m);
 }
 
-// ===== BINANCE API HELPER =====
+// ===== COINGECKO API (for crypto prices) =====
+const COINGECKO_API = "https://api.coingecko.com/api/v3";
 
-async function getBTCPrice() {
+// Get crypto prices from CoinGecko
+async function getCryptoPrices() {
   try {
-    const res = await axios.get(`${BINANCE_API}/api/v3/ticker/price?symbol=BTCUSDT`);
+    const res = await axios.get(`${COINGECKO_API}/simple/price?ids=bitcoin,ethereum&vs_currencies=usd`);
     return {
-      price: parseFloat(res.data.price),
-      symbol: res.data.symbol,
+      btc: res.data.bitcoin?.usd || null,
+      eth: res.data.ethereum?.usd || null,
       timestamp: Date.now()
     };
   } catch (e) {
-    console.error("BTC price error:", e.message);
+    console.error("Price error:", e.message);
     return null;
   }
 }
@@ -373,7 +375,8 @@ app.get("/api/markets/long", async (req, res) => {
 // Analyze 5m BTC market
 app.get("/api/analyze", async (req, res) => {
   try {
-    const btc = await getBTCPrice();
+    const prices = await getCryptoPrices();
+    const btc = prices?.btc ? { price: prices.btc } : null;
     const windowTs = getCurrent5mWindowTs();
     
     // Get current 5m market
@@ -422,9 +425,9 @@ app.get("/api/portfolio/real", async (req, res) => {
       return res.status(500).json({ error: "Failed to fetch balance" });
     }
     
-    // Get BTC price for conversion
-    const btc = await getBTCPrice();
-    const ethUsd = btc?.price || 0;
+    // Get ETH price from CoinGecko
+    const prices = await getCryptoPrices();
+    const ethUsd = prices?.eth || 0;
     
     res.json({
       eth: balance.eth,
