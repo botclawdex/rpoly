@@ -18,7 +18,7 @@ const CLOB_API = "https://clob.polymarket.com";
 const BINANCE_API = "https://api.binance.com";
 
 // ===== COINBASE RPC (for on-chain balance) =====
-const COINBASE_RPC = "https://api.developer.coinbase.com/rpc/v1/base/oMc2GB9cTF7I8zaD11NHTuIVDxECmWz1";
+const BASE_RPC = "https://mainnet.base.org";
 const WALLET_ADDR = "0xDEB4f464d46B1A3CDB4A29c41C6E908378993914";
 const USDC_ADDR = "0x833589fCD6eDb6E08f4c7C32D4f71B54bdA02913";
 
@@ -232,8 +232,7 @@ async function getBTCPrice() {
   }
 }
 
-// ===== COINBASE RPC HELPERS =====
-
+// Get on-chain balance using Base RPC
 async function getOnChainBalance(address) {
   try {
     // ETH balance
@@ -243,7 +242,7 @@ async function getOnChainBalance(address) {
       params: [address, "latest"],
       id: 1
     });
-    const ethRes = await axios.post(COINBASE_RPC, ethBody, {
+    const ethRes = await axios.post(BASE_RPC, ethBody, {
       headers: { "Content-Type": "application/json" }
     });
     const ethWei = parseInt(ethRes.data.result, 16);
@@ -257,7 +256,7 @@ async function getOnChainBalance(address) {
       params: [{ to: USDC_ADDR, data: usdcData }, "latest"],
       id: 1
     });
-    const usdcRes = await axios.post(COINBASE_RPC, usdcBody, {
+    const usdcRes = await axios.post(BASE_RPC, usdcBody, {
       headers: { "Content-Type": "application/json" }
     });
     const usdcWei = parseInt(usdcRes.data.result, 16);
