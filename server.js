@@ -30,6 +30,11 @@ const RPC = {
   polygon: "https://polygon-rpc.com"
 };
 
+// ===== ETHERSCAN V2 API (free tier has limits) =====
+// Free tier: 1 call/5sec, 5 calls/sec - works but may rate limit
+const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || "AHS95H9AI3U3MPADUIZRV6AVXJK1DDAY3W";
+const ETHERSCAN_V2 = "https://api.etherscan.io/v2/api";
+
 // Mock portfolio for demo
 let portfolio = {
   balance: 1000, // USD
@@ -242,8 +247,28 @@ async function getCryptoPrices() {
   }
 }
 
-// Get native token balance (ETH/POL) via RPC
+// Chain ID mapping for Etherscan V2
+const CHAIN_IDS = {
+  base: "8453",
+  polygon: "137", 
+  ethereum: "1"
+};
+
+// Get native token balance - try Etherscan V2 first, fallback to RPC
 async function getNativeBalance(chain) {
+  try {
+    // Try Etherscan V2 first (has rate limits but more reliable)
+    const url = `${ETHERSCAN_V2}?chainid=${CHAIN_IDS[chain]}&module=account&action=balance&address=${WALLET_ADDR}&tag=latest&apikey=${ETHERSCAN_API_KEY}`;
+    const res = await axios.get(url, { timeout: 5000 });
+    
+    if (res.data.status === "1" && parseInt(res.data.result) > 0) {
+      return parseInt(res.data.result) / 1e18;
+    }
+  } catch (e) {
+    console.log(`${chain} Etherscan V2 failed:`, e.message);
+  }
+  
+  // Fallback to RPC
   try {
     const rpc = RPC[chain];
     const body = JSON.stringify({
@@ -261,15 +286,30 @@ async function getNativeBalance(chain) {
       const wei = parseInt(res.data.result, 16);
       return wei / 1e18;
     }
-    return 0;
   } catch (e) {
-    console.error(`${chain} balance error:`, e.message);
-    return 0;
+    console.error(`${chain} RPC balance error:`, e.message);
   }
+  
+  return 0;
 }
 
-// Get ERC-20 token balance via RPC
+// Get ERC-20 token balance - try Etherscan V2 first, fallback to RPC
 async function getTokenBalance(chain, tokenAddr) {
+  // Try Etherscan V2 first
+  try {
+    const url = `${ETHERSCAN_V2}?chainid=${CHAIN_IDS[chain]}&module=account&action=tokenbalance&address=${WALLET_ADDR}&contractaddress=${tokenAddr}&tag=latest&apikey=${ETHERSCAN_API_KEY}`;
+    const res = await axios.get(url, { timeout: 5000 });
+    
+    if (res.data.status === "1" && parseInt(res.data.result) > 0) {
+      const decimals = tokenAddr.toLowerCase() === USDC_ADDR.toLowerCase() || 
+                      tokenAddr.toLowerCase() === POLYGON_USDC_ADDR.toLowerCase() ? 6 : 18;
+      return parseInt(res.data.result) / Math.pow(10, decimals);
+    }
+  } catch (e) {
+    console.log(`${chain} Etherscan V2 token failed:`, e.message);
+  }
+  
+  // Fallback to RPC
   try {
     const rpc = RPC[chain];
     const data = "0x70a08231000000000000000000000000" + WALLET_ADDR.slice(2).toLowerCase();
@@ -286,14 +326,13 @@ async function getTokenBalance(chain, tokenAddr) {
     
     if (res.data.result) {
       const wei = parseInt(res.data.result, 16);
-      // USDC has 6 decimals
-      return wei / 1e6;
+      return wei / 1e6; // USDC has 6 decimals
     }
-    return 0;
   } catch (e) {
     console.error(`${chain} token balance error:`, e.message);
-    return 0;
   }
+  
+  return 0;
 }
 
 // Get multi-chain portfolio using Etherscan V2 API
