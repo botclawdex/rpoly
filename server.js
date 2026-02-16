@@ -20,7 +20,7 @@ const CLOB_API = "https://clob.polymarket.com";
 const BINANCE_API = "https://api.binance.com";
 
 // ===== WALLET CONFIG =====
-const WALLET_ADDR = "0xDEB4f464d46B1A3CDB4A29c41C6E908378993914";
+const WALLET_ADDR = "0x7Ca66FFAF6A5D4DE8492C97c61753B699350AD77";
 const USDC_ADDR = "0x833589fCD6eDb6E08f4c7C32D4f71B54bdA02913"; // Base USDC
 const POLYGON_USDC_ADDR = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"; // Polygon USDC
 
@@ -32,7 +32,10 @@ const RPC = {
 
 // ===== ETHERSCAN V2 API (free tier has limits) =====
 // Free tier: 1 call/5sec, 5 calls/sec - works but may rate limit
-const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || "AHS95H9AI3U3MPADUIZRV6AVXJK1DDAY3W";
+const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY;
+if (!ETHERSCAN_API_KEY) {
+  console.warn('⚠️ ETHERSCAN_API_KEY not set - balance checks may fail');
+}
 const ETHERSCAN_V2 = "https://api.etherscan.io/v2/api";
 
 // Mock portfolio for demo

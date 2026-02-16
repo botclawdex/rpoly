@@ -67,8 +67,8 @@ GET /api?module=account&action=tokenbalance&address={addr}&contractaddress={USDC
 ```
 
 ## Wallet
-- **Custody address:** `0xDEB4f464d46B1A3CDB4A29c41C6E908378993914`
-- Dane w: `memory/credentials.json` → `farcaster.custody_address`
+- **Custody address:** `0x7Ca66FFAF6A5D4DE8492C97c61753B699350AD77`
+- Dane w: `skills/farcaster-agent/.env` → `FARCASTER_PRIVATE_KEY`
 
 ## Deployment
 ```bash

@@ -53,11 +53,11 @@ rPoly is an AI-powered trading bot for Polymarket prediction markets, integrated
 ## Wallet Configuration
 
 **Trading Wallet (EOA):**
-- Address: `0xDEB4f464d46B1A3CDB4A29c41C6E908378993914`
-- Private Key: Stored in `memory/credentials.json` (farcaster.custody_private_key)
+- Address: `0x7Ca66FFAF6A5D4DE8492C97c61753B699350AD77`
+- Private Key: Stored in `skills/farcaster-agent/.env` (FARCASTER_PRIVATE_KEY)
 - Used for: Polymarket CLOB trading, signature signing
 
-**Note:** This is the SAME wallet as the FarFararcaster account (FID 2774071).
+**Note:** This is the SAME wallet as the FarFararcaster account (FID 2798000).
 
 ## Current Balance
 

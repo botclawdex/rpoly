@@ -48,8 +48,8 @@
 ### Technical Details
 ```
 Chain: Polygon (chain ID 137)
-Wallet: 0xDEB4f464d46B1A3CDB4A29c41C6E908378993914
-Private Key: From farcaster.custody_private_key
+Wallet: 0x7Ca66FFAF6A5D4DE8492C97c61753B699350AD77
+Private Key: From FARCASTER_PRIVATE_KEY env var
 
 Signature Type: 0 (EOA)
 Funder: Same as wallet address
