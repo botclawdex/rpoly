@@ -2,13 +2,23 @@ require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
-const { ClobClient } = require("@polymarket/clob-client");
-const { Wallet, providers, Contract } = require("ethers");
+const path = require("path");
+
+let ClobClient, Wallet, providers, Contract;
+try {
+  ClobClient = require("@polymarket/clob-client").ClobClient;
+  const ethers = require("ethers");
+  Wallet = ethers.Wallet;
+  providers = ethers.providers;
+  Contract = ethers.Contract;
+} catch (e) {
+  console.warn("Optional deps not available:", e.message);
+}
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use(express.static("."));
+app.use(express.static(path.join(__dirname)));
 
 const PORT = process.env.PORT || 3001;
 
@@ -52,7 +62,7 @@ function requireAuth(req, res, next) {
 let clobClient = null;
 
 function getClobClient() {
-  if (!HAS_TRADING) return null;
+  if (!HAS_TRADING || !ClobClient || !Wallet) return null;
   if (!clobClient) {
     try {
       const signer = new Wallet(PRIVATE_KEY);
@@ -107,6 +117,9 @@ async function findActive5mMarket() {
 }
 
 async function getBalances() {
+  if (!providers || !Contract || !Wallet) {
+    return { eoa: { address: "n/a", usdc: 0, matic: 0 }, proxy: { address: PROXY_ADDRESS, usdc: 0 }, totalUsdc: 0 };
+  }
   try {
     const provider = new providers.JsonRpcProvider(POLYGON_RPC);
     const usdc = new Contract(USDC_ADDR, USDC_ABI, provider);
@@ -450,22 +463,28 @@ app.get("/api/chart", async (req, res) => {
 });
 
 // ===== PAGES =====
-app.get("/", (req, res) => res.sendFile(__dirname + "/index.html"));
-app.get("/markets", (req, res) => res.sendFile(__dirname + "/markets.html"));
+app.get("/", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
+app.get("/markets", (req, res) => res.sendFile(path.join(__dirname, "markets.html")));
 
 // ===== START =====
-app.listen(PORT, () => {
-  let eoaAddr = "NOT SET";
-  try { eoaAddr = new Wallet(PRIVATE_KEY).address; } catch (e) {}
+// Only listen when running directly (not on Vercel)
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    let eoaAddr = "NOT SET";
+    try { if (Wallet) eoaAddr = new Wallet(PRIVATE_KEY).address; } catch (e) {}
 
-  console.log("");
-  console.log("  rPoly v2.1.0");
-  console.log("  http://localhost:" + PORT);
-  console.log("");
-  console.log("  EOA:     " + eoaAddr);
-  console.log("  Proxy:   " + (PROXY_ADDRESS || "NOT SET"));
-  console.log("  Mode:    " + RPOLY_MODE.toUpperCase());
-  console.log("  Trading: " + (IS_READONLY ? "DISABLED (readonly)" : HAS_TRADING ? "LIVE (signatureType=2 GNOSIS_SAFE)" : "NO KEYS"));
-  console.log("  Auth:    " + (IS_READONLY ? "NOT NEEDED (readonly)" : HAS_AUTH ? "ENABLED" : "OPEN"));
-  console.log("");
-});
+    console.log("");
+    console.log("  rPoly v2.1.0");
+    console.log("  http://localhost:" + PORT);
+    console.log("");
+    console.log("  EOA:     " + eoaAddr);
+    console.log("  Proxy:   " + (PROXY_ADDRESS || "NOT SET"));
+    console.log("  Mode:    " + RPOLY_MODE.toUpperCase());
+    console.log("  Trading: " + (IS_READONLY ? "DISABLED (readonly)" : HAS_TRADING ? "LIVE (signatureType=2 GNOSIS_SAFE)" : "NO KEYS"));
+    console.log("  Auth:    " + (IS_READONLY ? "NOT NEEDED (readonly)" : HAS_AUTH ? "ENABLED" : "OPEN"));
+    console.log("");
+  });
+}
+
+// Export for Vercel serverless
+module.exports = app;

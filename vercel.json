@@ -4,12 +4,21 @@
     {
       "src": "server.js",
       "use": "@vercel/node"
+    },
+    {
+      "src": "index.html",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "markets.html",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "/server.js"
-    }
+    { "src": "/api/(.*)", "dest": "/server.js" },
+    { "src": "/index.html", "dest": "/index.html" },
+    { "src": "/markets.html", "dest": "/markets.html" },
+    { "src": "/markets", "dest": "/markets.html" },
+    { "src": "/", "dest": "/index.html" }
   ]
 }

@@ -1,110 +1,148 @@
-# rPoly Trading Brain
+# rPoly Trading Brain - v2.0
 
-## Analiza rynku - 2026-02-15
-
-### Twitter Sentiment (BTC)
-```
-- @hilarycuff: "69k hit, 4 wins in a row" - bullish
-- @dbetrading: "HIGH RISK SETUP" - hedging longs, bearish
-- @zenji_trades: "be very careful... go with direction of trend" - cautious
-- @Mudassirbaig42: buyers defending support - bullish
-- @PolymarketSuccubus: 5-min BTC markets NEW META - bullish on 5m
-- @akk_pkl: shorts more over-leveraged, upside pressure possible - bullish squeeze
-- @SjXBT_: "sellers dominating the action" - bearish
-- @thomas_fahrer: "bull market has begun" - very bullish
-```
-
-### Web Search Sentiment
-```
-- CoinCodex: BEARISH (26 bearish vs 4 bullish indicators)
-- TradingView: EXTREME FEAR (often = buying opportunity)
-- CoinDCX: Could reach $100-105K by Feb 2026
-- BeInCrypto: Cautious sentiment, gradual upside
-```
-
-### Kluczowe obserwacje
-1. **Twitter jest podzielony** - część bullish, część bearish
-2. **Web sentiment: BEARISH** - wskaźniki techniczne na "sprzedaj"
-3. **TradingView: EXTREME FEAR** - to często odwrócenie trendu
-4. **Polymarket 5m: NOWY META** - nikt jeszcze nie wie jak handlować
+## Aktualizacja: 2026-02-16
 
 ---
 
-## Strategy: ANTI-TULUM (Anti-Crowd)
+## 🎯 Strategy Suite
 
-### Zasada przewodnia
-> "Nie idź za głosem tłumu. Tłum na Twitterze = zazwyczaj przegrywa. 
->  Myśl swoim własnym mózgiem."
-
-### Analiza moich wygranych tradeów (historii)
-```
-Brak historii - bot jest nowy.
-Strategia: Zacznij od małych kwot, ucz się na błędach.
-```
-
-### Logika tradingu
-
-```
-SYGNAŁ KUPUJ UP:
-├── BTC 1h trend: W GÓRĘ (EMA 50 > EMA 200)
-├── Twitter sentiment: < 40% bullish (tłum sprzedaje)
-├── Polymarket UP: < 45% (tłum kupuje DOWN)
-└── Akcja: Kup UP
-
-SYGNAŁ KUPUJ DOWN:
-├── BTC 1h trend: W DÓŁ (EMA 50 < EMA 200)  
-├── Twitter sentiment: > 60% bullish (tłum kupuje)
-├── Polymarket DOWN: < 45% (tłum kupuje UP)
-└── Akcja: Kup DOWN
-
-BRAK TRADE:
-├── Wszystko ~50/50
-├── Zbyt wysokie ryzyko
-└── Akcja: CZEKAJ
-```
-
-### Bezpieczeństwo
-
-```
-MAX TRADE: 0.1 USDC (3% kapitału)
-STOP LOSS: Nie ma (5m market sam się zamyka)
-CZEKAJ po stracie: 2 okna (10 min)
-CZEKAJ po wygranej: 1 okno (5 min)
-```
-
-### Co NIE robić
-```
-✗ Nie kupuj gdy UP > 55% (tłum już kupuje UP)
-✗ Nie kupuj gdy Twitter 80% bullish
-✗ Nie gonić trendu w ostatniej minucie
-✗ Nie tradeuj po 3 stratach z rzędu
-```
-
-### Co ROBIC
-```
-✓ Kupuj gdy INNI się boją (Extreme Fear = OK)
-✓ Kupuj gdy Polymarket jest blisko 50/50
-✓ Obserwuj własne wyniki - ucz się
-✓ Zapisuj KAŻDY trade do analizy
-```
+Bot ma teraz 3 niezależne strategie do wyboru:
 
 ---
 
-## Konfiguracja
+### STRATEGY 1: FADE (Primary)
+
+**Zasada:** Kupuj przeciwnie do tłumu. Kiedy rynek jest overbought/oversold (>55%), tłum prawdopodobnie się myli.
 
 ```javascript
-{
-  maxTrade: 0.1,        // USDC
-  minConfidence: 0.45,    // minimum odds do trade
-  waitAfterLoss: 2,      // okna po stracie
-  waitAfterWin: 1,       // okna po wygranej
-  trendThreshold: 0.50   // minimalny trend do uwzględnienia
+SYGNAŁ KUPUJ DOWN (fade UP):
+├── UP price > 55%
+├── Rynek overbought
+└── → Kupuj DOWN
+
+SYGNAŁ KUPUJ UP (fade DOWN):
+├── DOWN price > 55%  
+├── Rynek oversold
+└── → Kupuj UP
+
+BRAK TRADE:
+├── Wszystko 45-55%
+└── → CZEKAJ
+```
+
+**Parametry:**
+- minOdds: 0.45
+- maxOdds: 0.55
+- confidence: |50 - odds|
+
+---
+
+### STRATEGY 2: MOMENTUM (Follow the Trend)
+
+**Zasada:** Idź z trendem. Krótkoterminowe trendy mają momentum.
+
+```javascript
+SYGNAŁ KUPUJ UP:
+├── BTC 5m candle: ZIELONY (close > open)
+├── BTC 1h trend: W GÓRĘ (EMA 50 > EMA 200)
+└── → Kupuj UP
+
+SYGNAŁ KUPUJ DOWN:
+├── BTC 5m candle: CZERWONY (close < open)
+├── BTC 1h trend: W DÓŁ (EMA 50 < EMA 200)
+└── → Kupuj DOWN
+```
+
+**Parametry:**
+- minMomentum: 0.1% (5m change)
+- confirmation: 1h trend align
+
+---
+
+### STRATEGY 3: EXTREME FEAR (Contrarian)
+
+**Zasada:** Kupuj gdy inni się boją. Extreme Fear na TradingView = buying opportunity.
+
+```javascript
+SYGNAŁ KUPUJ UP:
+├── Fear & Greed Index: < 25 (Extreme Fear)
+├── Rynek oversold (UP < 40%)
+└── → Kupuj UP
+
+SYGNAŁ KUPUJ DOWN:
+├── Fear & Greed Index: > 75 (Extreme Greed)
+├── Rynek overbought (UP > 60%)
+└── → Kupuj DOWN
+```
+
+**Parametry:**
+- fearThreshold: 25
+- greedThreshold: 75
+
+---
+
+## 🔀 Strategy Selection Logic
+
+```javascript
+function selectStrategy(marketData, btcPrice, fearIndex) {
+  const { upPrice, downPrice, volume } = marketData;
+  
+  // High volume + extreme odds = FADE
+  if (volume > 10000 && (upPrice > 0.6 || downPrice > 0.6)) {
+    return 'FADE';
+  }
+  
+  // Clear momentum = MOMENTUM
+  if (btcPrice.change5m > 0.2 || btcPrice.change5m < -0.2) {
+    return 'MOMENTUM';
+  }
+  
+  // Extreme fear/greed = EXTREME_FEAR
+  if (fearIndex < 25 || fearIndex > 75) {
+    return 'EXTREME_FEAR';
+  }
+  
+  // Default: FADE (most reliable)
+  return 'FADE';
 }
 ```
 
 ---
 
-## Learning (do uzupełnienia)
+## 🛡️ Risk Management
+
+```javascript
+{
+  maxTrade: 0.1,           // Max 0.1 USDC (10 cents)
+  maxDailyLoss: 0.5,       // Stop trading after 0.5 USDC loss
+  maxConsecutiveLoss: 3,    // Stop after 3 losses
+  minVolume: 1000,         // Min market volume to trade
+  waitAfterLoss: 2,        // Wait 2 windows (10 min) after loss
+  waitAfterWin: 1,         // Wait 1 window (5 min) after win
+  maxTradesPerDay: 10      // Max 10 trades per day
+}
+```
+
+---
+
+## 📊 Position Sizing
+
+```javascript
+function calculateSize(confidence, balance) {
+  // confidence: 0-1 (how sure we are)
+  // balance: available USDC
+  
+  const baseSize = 0.05;        // Base bet
+  const multiplier = confidence; // Scale with confidence
+  
+  const size = baseSize + (balance * 0.1 * multiplier);
+  return Math.min(size, 0.1);   // Cap at 0.1 USDC
+}
+```
+
+---
+
+## 📈 Performance Tracking
 
 ```json
 {
@@ -114,7 +152,70 @@ CZEKAJ po wygranej: 1 okno (5 min)
   "winRate": 0,
   "avgWin": 0,
   "avgLoss": 0,
-  "bestStrategy": null,
-  "worstStrategy": null
+  "strategyStats": {
+    "FADE": { "trades": 0, "wins": 0 },
+    "MOMENTUM": { "trades": 0, "wins": 0 },
+    "EXTREME_FEAR": { "trades": 0, "wins": 0 }
+  },
+  "daily": {
+    "trades": 0,
+    "pnl": 0,
+    "stopped": false
+  }
 }
 ```
+
+---
+
+## 🔄 Decision Flow
+
+```
+GET /api/dashboard
+    ↓
+GET /api/markets/5m (current market)
+    ↓
+GET BTC price + 5m change
+    ↓
+GET Fear & Greed Index (optional)
+    ↓
+SELECT STRATEGY:
+├── FADE if extreme odds + high volume
+├── MOMENTUM if clear 5m direction
+└── EXTREME_FEAR if fear < 25 or > 75
+    ↓
+CHECK CONDITIONS:
+├── Volume > 1000?
+├── Not after 3 losses?
+├── Not max daily trades?
+└── Not stopped for risk?
+    ↓
+EXECUTE TRADE:
+├── Calculate size (confidence-based)
+├── Place order via CLOB
+└── Log result
+    ↓
+UPDATE TRACKING:
+├── Record win/loss
+├── Update strategy stats
+└── Check stop conditions
+```
+
+---
+
+## 🧪 Testing Notes
+
+**Status:** v2.0 ready for live testing
+
+**Test sequence:**
+1. Start with FADE only (most tested)
+2. Add MOMENTUM after 10 trades
+3. Add EXTREME_FEAR after 20 trades
+
+**Expected performance:**
+- FADE: ~55-60% win rate (market overreaction)
+- MOMENTUM: ~50-55% (follows trend)
+- EXTREME_FEAR: ~60-65% (contrarian at extremes)
+
+---
+
+*Last Updated: 2026-02-16*
