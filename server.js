@@ -4,15 +4,23 @@ const axios = require("axios");
 const cors = require("cors");
 const path = require("path");
 
-let ClobClient, Wallet, providers, Contract;
+let Wallet, providers, Contract;
 try {
-  ClobClient = require("@polymarket/clob-client").ClobClient;
   const ethers = require("ethers");
   Wallet = ethers.Wallet;
   providers = ethers.providers;
   Contract = ethers.Contract;
+  console.log("ethers loaded OK");
 } catch (e) {
-  console.warn("Optional deps not available:", e.message);
+  console.warn("ethers not available:", e.message);
+}
+
+let ClobClient;
+try {
+  ClobClient = require("@polymarket/clob-client").ClobClient;
+  console.log("clob-client loaded OK");
+} catch (e) {
+  console.warn("clob-client not available:", e.message);
 }
 
 const app = express();
