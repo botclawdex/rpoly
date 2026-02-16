@@ -1,9 +1,9 @@
-// rPoly - AI Polymarket Trading Bot
-// v1.4.0 - CLOB Trade Endpoint
+require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
-const path = require("path");
+const { ClobClient } = require("@polymarket/clob-client");
+const { Wallet, providers, Contract } = require("ethers");
 
 const app = express();
 app.use(cors());
@@ -12,789 +12,460 @@ app.use(express.static("."));
 
 const PORT = process.env.PORT || 3001;
 
-// ===== POLYMARKET API =====
+// ===== CONFIG =====
 const GAMMA_API = "https://gamma-api.polymarket.com";
 const CLOB_API = "https://clob.polymarket.com";
+const POLYGON_RPC = "https://polygon-bor-rpc.publicnode.com";
+const USDC_ADDR = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
+const USDC_ABI = ["function balanceOf(address) view returns (uint256)"];
 
-// ===== BINANCE API =====
-const BINANCE_API = "https://api.binance.com";
-
-// ===== WALLET CONFIG =====
-const WALLET_ADDR = "0x7Ca66FFAF6A5D4DE8492C97c61753B699350AD77";
-const USDC_ADDR = "0x833589fCD6eDb6E08f4c7C32D4f71B54bdA02913"; // Base USDC
-const POLYGON_USDC_ADDR = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"; // Polygon USDC
-
-// ===== PUBLIC RPC ENDPOINTS (free, no API key needed) =====
-const RPC = {
-  base: "https://mainnet.base.org",
-  polygon: "https://polygon-rpc.com"
+const PRIVATE_KEY = process.env.POLY_PRIVATE_KEY || "";
+const PROXY_ADDRESS = process.env.POLY_PROXY_ADDRESS || "";
+const EOA_CREDS = {
+  key: process.env.POLY_API_KEY || "",
+  secret: process.env.POLY_API_SECRET || "",
+  passphrase: process.env.POLY_API_PASSPHRASE || "",
 };
+const AUTH_TOKEN = process.env.RPOLY_AUTH_TOKEN || "";
 
-// ===== ETHERSCAN V2 API (free tier has limits) =====
-// Free tier: 1 call/5sec, 5 calls/sec - works but may rate limit
-const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY;
-if (!ETHERSCAN_API_KEY) {
-  console.warn('⚠️ ETHERSCAN_API_KEY not set - balance checks may fail');
-}
-const ETHERSCAN_V2 = "https://api.etherscan.io/v2/api";
+const RPOLY_MODE = process.env.RPOLY_MODE || "live"; // "live" or "readonly"
+const IS_READONLY = RPOLY_MODE === "readonly";
+const HAS_TRADING = !IS_READONLY && !!(PRIVATE_KEY && PROXY_ADDRESS && EOA_CREDS.key);
+const HAS_AUTH = !!AUTH_TOKEN;
 
-// Mock portfolio for demo
-let portfolio = {
-  balance: 1000, // USD
-  positions: [],
-  pnl: 0,
-  history: []
-};
+// ===== AUTH MIDDLEWARE =====
+function requireAuth(req, res, next) {
+  if (!HAS_AUTH) return next(); // no token set = open (dev mode)
 
-// ===== POLYMARKET HELPER FUNCTIONS =====
-
-// Get current 5-minute window timestamp
-// Returns the NEXT window (the one that just opened), not the current one which may be closing
-function getCurrent5mWindowTs() {
-  const nowMs = Date.now();
-  const nowSeconds = Math.floor(nowMs / 1000);
-  // Round down to get current window start in seconds (300 = 5 min * 60 sec)
-  const currentWindowSec = Math.floor(nowSeconds / 300) * 300;
-  // Return next window (5 min ahead)
-  return currentWindowSec + 300;
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Unauthorized. Send Authorization: Bearer <token>" });
+  }
+  const token = header.slice(7);
+  if (token !== AUTH_TOKEN) {
+    return res.status(403).json({ error: "Invalid token" });
+  }
+  next();
 }
 
-// Fetch markets from Polymarket (includes 5m markets)
-async function getMarkets(limit = 50, filter5m = false) {
-  try {
-    // For 5m markets, we need to calculate the current window timestamp
-    // and query by slug directly
-    if (filter5m) {
-      const windowTs = getCurrent5mWindowTs();
-      const slug = `btc-updown-5m-${windowTs}`;
-      console.log("Fetching 5m market with slug:", slug, "windowTs:", windowTs);
-      
-      try {
-        const response = await axios.get(`${GAMMA_API}/markets`, {
-          params: { slug: slug },
-          timeout: 8000
-        });
-        
-        console.log("5m API response length:", response.data?.length);
-        
-        if (response.data && response.data.length > 0) {
-          const market = response.data[0];
-          
-          // Parse prices
-          let yesPrice = null;
-          let noPrice = null;
-          
-          try {
-            const parsed = JSON.parse(market.outcomePrices || "[]");
-            yesPrice = parsed[0] ? parseFloat(parsed[0]) : null;
-            noPrice = parsed[1] ? parseFloat(parsed[1]) : null;
-          } catch {}
-          
-          return [{
-            id: market.id,
-            question: market.question,
-            slug: market.slug,
-            volume: market.volumeNum || market.volume || market.volume24hr || 0,
-            liquidity: market.liquidityNum || market.liquidity || 0,
-            yesPrice: yesPrice,
-            noPrice: noPrice,
-            tokenYes: market.clobTokenIds?.[0],
-            tokenNo: market.clobTokenIds?.[1],
-            endDate: market.endDate || market.end_date_utc,
-            is5m: true,
-            resolved: false,
-            acceptingOrders: market.acceptingOrders || true,
-            category: "Crypto 5m"
-          }];
-        }
-      } catch (e) {
-        console.log("5m market not found for slug:", slug, e.message);
-      }
-      
-      // Also try to get recent 5m windows (last few)
-      const markets = [];
-      for (let i = 0; i <= 3; i++) {
-        const pastWindowTs = getCurrent5mWindowTs() - (i * 300);
-        const pastSlug = `btc-updown-5m-${pastWindowTs}`;
-        
-        try {
-          const response = await axios.get(`${GAMMA_API}/markets`, {
-            params: { slug: pastSlug },
-            timeout: 5000
-          });
-          
-          if (response.data && response.data.length > 0) {
-            const market = response.data[0];
-            
-            let yesPrice = null;
-            let noPrice = null;
-            
-            try {
-              const parsed = JSON.parse(market.outcomePrices || "[]");
-              yesPrice = parsed[0] ? parseFloat(parsed[0]) : null;
-              noPrice = parsed[1] ? parseFloat(parsed[1]) : null;
-            } catch {}
-            
-            markets.push({
-              id: market.id,
-              question: market.question,
-              slug: market.slug,
-              volume: market.volumeNum || market.volume || market.volume24hr || 0,
-              liquidity: market.liquidityNum || market.liquidity || 0,
-              yesPrice: yesPrice,
-              noPrice: noPrice,
-              tokenYes: market.clobTokenIds?.[0],
-              tokenNo: market.clobTokenIds?.[1],
-              endDate: market.endDate || market.end_date_utc,
-              is5m: true,
-              resolved: market.resolved || false,
-              acceptingOrders: market.acceptingOrders || false,
-              category: "Crypto 5m"
-            });
-          }
-        } catch {}
-      }
-      
-      return markets;
+// ===== CLOB CLIENT =====
+let clobClient = null;
+
+function getClobClient() {
+  if (!HAS_TRADING) return null;
+  if (!clobClient) {
+    try {
+      const signer = new Wallet(PRIVATE_KEY);
+      clobClient = new ClobClient(CLOB_API, 137, signer, EOA_CREDS, 2, PROXY_ADDRESS);
+    } catch (e) {
+      console.error("ClobClient init error:", e.message);
+      return null;
     }
-    
-    // Regular markets (non-5m)
-    const response = await axios.get(`${GAMMA_API}/markets`, {
-      params: {
-        active: true,
-        closed: false,
-        limit: 200
-      },
-      timeout: 8000
-    });
-    
-    let markets = [];
-    
-    // Get all markets from response, filter out 5m
-    for (const market of response.data) {
-      // Skip closed or inactive
-      if (market.closed) continue;
-      if (!market.active) continue;
-      
-      // Skip 5m markets for regular list
-      const is5m = market.slug?.includes('updown') && 
-                   (market.slug?.includes('5m') || market.slug?.match(/updown-\d+/));
-      
-      if (is5m) continue;
-      
-      // Parse prices
-      let yesPrice = null;
-      let noPrice = null;
-      
-      try {
-        const parsed = JSON.parse(market.outcomePrices || "[]");
-        yesPrice = parsed[0] ? parseFloat(parsed[0]) : null;
-        noPrice = parsed[1] ? parseFloat(parsed[1]) : null;
-      } catch {}
-      
-      // Get category from events if available
-      let category = market.category || "Unknown";
-      if (market.events && market.events.length > 0) {
-        category = market.events[0].category || market.category || "Crypto";
-      }
-      
-      markets.push({
-        id: market.id,
-        question: market.question,
-        slug: market.slug,
-        volume: market.volumeNum || market.volume || market.volume24hr || 0,
-        liquidity: market.liquidityNum || market.liquidity || 0,
-        yesPrice: yesPrice,
-        noPrice: noPrice,
-        tokenYes: market.clobTokenIds?.[0],
-        tokenNo: market.clobTokenIds?.[1],
-        endDate: market.endDate || market.end_date_utc,
-        is5m: false,
-        resolved: false,
-        acceptingOrders: market.acceptingOrders || true,
-        category: category
+  }
+  return clobClient;
+}
+
+// ===== HELPERS =====
+
+function getCurrent5mSlots() {
+  const now = Math.floor(Date.now() / 1000);
+  const next = Math.ceil(now / 300) * 300;
+  return [next, next + 300, next + 600, next + 900];
+}
+
+async function findActive5mMarket() {
+  for (const slot of getCurrent5mSlots()) {
+    try {
+      const res = await axios.get(`${GAMMA_API}/markets`, {
+        params: { slug: `btc-updown-5m-${slot}` },
+        timeout: 5000,
       });
-      
-      if (markets.length >= limit * 2) break;
-    }
-    
-    // Sort by volume
-    markets.sort((a, b) => b.volume - a.volume);
-    return markets.slice(0, limit);
-  } catch (error) {
-    console.error("Error fetching markets:", error.message);
-    return [];
-  }
-}
-
-// Fetch active markets from Polymarket (legacy - uses /events)
-async function getActiveMarkets(limit = 20, filter5m = false) {
-  return getMarkets(limit, filter5m);
-}
-
-// ===== COINGECKO API (for crypto prices) =====
-const COINGECKO_API = "https://api.coingecko.com/api/v3";
-
-// Get crypto prices from CoinGecko
-async function getCryptoPrices() {
-  try {
-    const res = await axios.get(`${COINGECKO_API}/simple/price?ids=bitcoin,ethereum&vs_currencies=usd`);
-    return {
-      btc: res.data.bitcoin?.usd || null,
-      eth: res.data.ethereum?.usd || null,
-      timestamp: Date.now()
-    };
-  } catch (e) {
-    console.error("Price error:", e.message);
-    return null;
-  }
-}
-
-// Chain ID mapping for Etherscan V2
-const CHAIN_IDS = {
-  base: "8453",
-  polygon: "137", 
-  ethereum: "1"
-};
-
-// Get native token balance - try Etherscan V2 first, fallback to RPC
-async function getNativeBalance(chain) {
-  try {
-    // Try Etherscan V2 first (has rate limits but more reliable)
-    const url = `${ETHERSCAN_V2}?chainid=${CHAIN_IDS[chain]}&module=account&action=balance&address=${WALLET_ADDR}&tag=latest&apikey=${ETHERSCAN_API_KEY}`;
-    const res = await axios.get(url, { timeout: 5000 });
-    
-    if (res.data.status === "1" && parseInt(res.data.result) > 0) {
-      return parseInt(res.data.result) / 1e18;
-    }
-  } catch (e) {
-    console.log(`${chain} Etherscan V2 failed:`, e.message);
-  }
-  
-  // Fallback to RPC
-  try {
-    const rpc = RPC[chain];
-    const body = JSON.stringify({
-      jsonrpc: "2.0",
-      method: "eth_getBalance",
-      params: [WALLET_ADDR, "latest"],
-      id: 1
-    });
-    const res = await axios.post(rpc, body, {
-      headers: { "Content-Type": "application/json" },
-      timeout: 10000
-    });
-    
-    if (res.data.result) {
-      const wei = parseInt(res.data.result, 16);
-      return wei / 1e18;
-    }
-  } catch (e) {
-    console.error(`${chain} RPC balance error:`, e.message);
-  }
-  
-  return 0;
-}
-
-// Get ERC-20 token balance - try Etherscan V2 first, fallback to RPC
-async function getTokenBalance(chain, tokenAddr) {
-  // Try Etherscan V2 first
-  try {
-    const url = `${ETHERSCAN_V2}?chainid=${CHAIN_IDS[chain]}&module=account&action=tokenbalance&address=${WALLET_ADDR}&contractaddress=${tokenAddr}&tag=latest&apikey=${ETHERSCAN_API_KEY}`;
-    const res = await axios.get(url, { timeout: 5000 });
-    
-    if (res.data.status === "1" && parseInt(res.data.result) > 0) {
-      const decimals = tokenAddr.toLowerCase() === USDC_ADDR.toLowerCase() || 
-                      tokenAddr.toLowerCase() === POLYGON_USDC_ADDR.toLowerCase() ? 6 : 18;
-      return parseInt(res.data.result) / Math.pow(10, decimals);
-    }
-  } catch (e) {
-    console.log(`${chain} Etherscan V2 token failed:`, e.message);
-  }
-  
-  // Fallback to RPC
-  try {
-    const rpc = RPC[chain];
-    const data = "0x70a08231000000000000000000000000" + WALLET_ADDR.slice(2).toLowerCase();
-    const body = JSON.stringify({
-      jsonrpc: "2.0",
-      method: "eth_call",
-      params: [{ to: tokenAddr, data: data }, "latest"],
-      id: 1
-    });
-    const res = await axios.post(rpc, body, {
-      headers: { "Content-Type": "application/json" },
-      timeout: 10000
-    });
-    
-    if (res.data.result) {
-      const wei = parseInt(res.data.result, 16);
-      return wei / 1e6; // USDC has 6 decimals
-    }
-  } catch (e) {
-    console.error(`${chain} token balance error:`, e.message);
-  }
-  
-  return 0;
-}
-
-// Get multi-chain portfolio using Etherscan V2 API
-async function getMultiChainPortfolio() {
-  try {
-    // Base network
-    const baseEth = await getNativeBalance("base");
-    const baseUsdc = await getTokenBalance("base", USDC_ADDR);
-    
-    // Polygon network (Polymarket)
-    const polygonMatic = await getNativeBalance("polygon");
-    const polygonUsdc = await getTokenBalance("polygon", POLYGON_USDC_ADDR);
-    
-    // Get ETH price for USD conversion
-    const prices = await getCryptoPrices();
-    const ethUsd = prices?.eth || 0;
-    
-    // Calculate totals
-    const baseTotal = (baseEth * ethUsd) + baseUsdc;
-    const polygonTotal = polygonUsdc; // MATIC value is small, roughly $0.50-1.00
-    
-    return {
-      base: {
-        eth: baseEth,
-        usdc: baseUsdc,
-        totalUsd: baseTotal
-      },
-      polygon: {
-        matic: polygonMatic,
-        usdc: polygonUsdc,
-        totalUsd: polygonTotal
-      },
-      totalUsd: baseTotal + polygonTotal,
-      address: WALLET_ADDR,
-      timestamp: Date.now()
-    };
-  } catch (e) {
-    console.error("Multi-chain portfolio error:", e.message);
-    return null;
-  }
-}
-
-// Legacy: Get on-chain balance using Base RPC (kept for compatibility)
-async function getOnChainBalance(address) {
-  // Use Etherscan V2 instead
-  const portfolio = await getMultiChainPortfolio();
-  if (portfolio) {
-    return {
-      eth: portfolio.base.eth,
-      usdc: portfolio.base.usdc,
-      address: address,
-      timestamp: Date.now()
-    };
+      if (res.data?.length > 0 && !res.data[0].closed) {
+        const m = res.data[0];
+        const tokenIds = JSON.parse(m.clobTokenIds || "[]");
+        const outcomes = JSON.parse(m.outcomes || "[]");
+        const prices = JSON.parse(m.outcomePrices || "[]");
+        return {
+          id: m.id,
+          conditionId: m.conditionId,
+          question: m.question,
+          slug: m.slug,
+          negRisk: m.negRisk || false,
+          upTokenId: tokenIds[0],
+          downTokenId: tokenIds[1],
+          outcomes,
+          upPrice: parseFloat(prices[0]) || 0.5,
+          downPrice: parseFloat(prices[1]) || 0.5,
+          volume: m.volumeNum || m.volume || 0,
+          liquidity: m.liquidityNum || m.liquidity || 0,
+          endDate: m.endDate,
+        };
+      }
+    } catch (e) { /* next slot */ }
   }
   return null;
 }
 
-// Get market details
-async function getMarketDetails(marketIdOrSlug) {
+async function getBalances() {
   try {
-    const response = await axios.get(`${GAMMA_API}/markets`, {
-      params: { id: marketIdOrSlug }
-    });
-    
-    if (response.data && response.data.length > 0) {
-      return response.data[0];
+    const provider = new providers.JsonRpcProvider(POLYGON_RPC);
+    const usdc = new Contract(USDC_ADDR, USDC_ABI, provider);
+
+    let eoaAddr = "unknown";
+    try { eoaAddr = new Wallet(PRIVATE_KEY).address; } catch (e) {}
+
+    const results = {
+      eoa: { address: eoaAddr, usdc: 0, matic: 0 },
+      proxy: { address: PROXY_ADDRESS, usdc: 0 },
+      totalUsdc: 0,
+    };
+
+    try {
+      const bal = await usdc.balanceOf(PROXY_ADDRESS);
+      results.proxy.usdc = parseFloat(bal.toString()) / 1e6;
+    } catch (e) { console.log("Proxy USDC error:", e.message); }
+
+    if (eoaAddr !== "unknown") {
+      try {
+        const [eoaUsdc, eoaMatic] = await Promise.all([
+          usdc.balanceOf(eoaAddr),
+          provider.getBalance(eoaAddr),
+        ]);
+        results.eoa.usdc = parseFloat(eoaUsdc.toString()) / 1e6;
+        results.eoa.matic = parseFloat(eoaMatic.toString()) / 1e18;
+      } catch (e) { console.log("EOA balance error:", e.message); }
     }
-    return null;
-  } catch (error) {
-    console.error("Error fetching market:", error.message);
-    return null;
+
+    results.totalUsdc = results.eoa.usdc + results.proxy.usdc;
+    return results;
+  } catch (e) {
+    console.error("Balances error:", e.message);
+    return { eoa: { address: "error", usdc: 0, matic: 0 }, proxy: { address: PROXY_ADDRESS, usdc: 0 }, totalUsdc: 0 };
   }
 }
 
-// Get orderbook for a market
-async function getOrderbook(tokenId) {
+async function getBTCPrice() {
   try {
-    const response = await axios.get(`${CLOB_API}/book`, {
-      params: { token_id: tokenId }
+    const res = await axios.get("https://api.binance.com/api/v3/ticker/24hr", {
+      params: { symbol: "BTCUSDT" },
+      timeout: 5000,
     });
-    return response.data;
-  } catch (error) {
-    console.error("Error fetching orderbook:", error.message);
-    return null;
+    return { price: parseFloat(res.data.lastPrice) || 0, change24h: parseFloat(res.data.priceChangePercent) || 0 };
+  } catch (e) {
+    return { price: 0, change24h: 0 };
   }
 }
 
-// ===== ENDPOINTS =====
+// ===== PUBLIC ENDPOINTS =====
 
-// Health check
 app.get("/health", (req, res) => {
-  res.json({ status: "ok", service: "rPoly API", version: "1.3.0", network: "polymarket" });
-});
-
-// Dashboard - portfolio overview
-app.get("/api/dashboard", (req, res) => {
   res.json({
-    portfolio: portfolio.balance,
-    positions: portfolio.positions,
-    pnl: portfolio.pnl,
-    pnlPercent: ((portfolio.pnl / portfolio.balance) * 100).toFixed(2),
-    timestamp: Date.now()
+    status: "ok",
+    version: "2.1.0",
+    mode: RPOLY_MODE,
+    trading: HAS_TRADING ? "LIVE" : "READ_ONLY",
+    auth: HAS_AUTH ? "ENABLED" : "OPEN",
   });
 });
 
-// Get markets list
-app.get("/api/markets", async (req, res) => {
-  try {
-    const limit = parseInt(req.query.limit) || 20;
-    const filter = req.query.filter || '5m'; // '5m' or 'all'
-    const filter5m = filter === '5m';
-    
-    const markets = await getActiveMarkets(limit, filter5m);
-    
-    res.json({ markets, filter: filter, timestamp: Date.now() });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+// Verify auth token
+app.post("/api/auth", (req, res) => {
+  if (!HAS_AUTH) return res.json({ ok: true, msg: "Auth not configured (dev mode)" });
+  const { token } = req.body;
+  if (token === AUTH_TOKEN) {
+    res.json({ ok: true });
+  } else {
+    res.status(403).json({ ok: false, error: "Invalid token" });
   }
 });
 
-// Get 5m markets only (short-term BTC up/down)
+// Dashboard data (public read - no secrets exposed)
+app.get("/api/dashboard", async (req, res) => {
+  console.log("[dashboard] fetching...");
+
+  const [balances, btc, market] = await Promise.all([
+    getBalances().catch(() => ({ eoa: { usdc: 0, matic: 0 }, proxy: { usdc: 0 }, totalUsdc: 0 })),
+    getBTCPrice().catch(() => ({ price: 0, change24h: 0 })),
+    findActive5mMarket().catch(() => null),
+  ]);
+
+  let orderbook = null;
+  let openOrders = [];
+
+  if (market?.upTokenId) {
+    const client = getClobClient();
+    if (client) {
+      try { orderbook = await client.getOrderBook(market.upTokenId); } catch (e) { console.log("Orderbook:", e.message); }
+      try { openOrders = (await client.getOpenOrders()) || []; } catch (e) { console.log("OpenOrders:", e.message); }
+    }
+  }
+
+  const signal = market
+    ? market.upPrice > 0.55 ? "DOWN" : market.downPrice > 0.55 ? "UP" : "NEUTRAL"
+    : "NO_MARKET";
+
+  const result = {
+    balances,
+    btc,
+    market,
+    orderbook: orderbook ? {
+      bestAsk: orderbook.asks?.length ? orderbook.asks[orderbook.asks.length - 1] : null,
+      bestBid: orderbook.bids?.length ? orderbook.bids[0] : null,
+      askDepth: orderbook.asks?.length || 0,
+      bidDepth: orderbook.bids?.length || 0,
+    } : null,
+    signal,
+    openOrders,
+    hasTradingKeys: HAS_TRADING,
+    authRequired: HAS_AUTH,
+    mode: RPOLY_MODE,
+    timestamp: Date.now(),
+  };
+
+  console.log("[dashboard] done:", {
+    proxyUsdc: balances.proxy?.usdc,
+    btcPrice: btc.price,
+    market: market?.question?.slice(0, 40) || "none",
+    signal,
+  });
+
+  res.json(result);
+});
+
+// 5m markets list (public)
 app.get("/api/markets/5m", async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 20;
-    const markets = await getMarkets(limit, true);
-    
-    res.json({ markets, type: "5m", timestamp: Date.now() });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+    const now = Math.floor(Date.now() / 1000);
+    const current = Math.ceil(now / 300) * 300;
+    const markets = [];
 
-// Get long-term markets (non-5m)
-app.get("/api/markets/long", async (req, res) => {
-  try {
-    const limit = parseInt(req.query.limit) || 20;
-    const category = req.query.category;
-    const markets = await getMarkets(limit, false);
-    
-    // Filter by category if provided
-    let filtered = markets;
-    if (category) {
-      filtered = markets.filter(m => m.category?.toLowerCase() === category.toLowerCase());
+    for (let i = -2; i <= 4; i++) {
+      const slot = current + i * 300;
+      try {
+        const r = await axios.get(`${GAMMA_API}/markets`, {
+          params: { slug: `btc-updown-5m-${slot}` },
+          timeout: 3000,
+        });
+        if (r.data?.length > 0) {
+          const m = r.data[0];
+          const prices = JSON.parse(m.outcomePrices || "[]");
+          const tokenIds = m.clobTokenIds ? JSON.parse(m.clobTokenIds) : [];
+          markets.push({
+            question: m.question,
+            slug: m.slug,
+            closed: m.closed || false,
+            upPrice: parseFloat(prices[0]) || 0,
+            downPrice: parseFloat(prices[1]) || 0,
+            volume: m.volumeNum || 0,
+            resolved: m.resolved || false,
+            endDate: m.endDate,
+            conditionId: m.conditionId,
+            tokenIds,
+          });
+        }
+      } catch (e) {}
     }
-    
-    res.json({ markets: filtered, type: "long", category: category || "all", timestamp: Date.now() });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+
+    res.json({ markets, timestamp: Date.now() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
-// ===== NOWE ENDPOINTY =====
+// Profile + full stats from Data API & Gamma API
+app.get("/api/profile", async (req, res) => {
+  const DATA_API = "https://data-api.polymarket.com";
+  const addr = PROXY_ADDRESS;
+  if (!addr) return res.json({ error: "No proxy address" });
 
-// Analyze 5m BTC market
-app.get("/api/analyze", async (req, res) => {
-  try {
-    const prices = await getCryptoPrices();
-    const btc = prices?.btc ? { price: prices.btc } : null;
-    const windowTs = getCurrent5mWindowTs();
-    
-    // Get current 5m market
-    const slug = `btc-updown-5m-${windowTs}`;
-    const marketRes = await axios.get(`${GAMMA_API}/markets`, { params: { slug } });
-    
-    let market = null;
-    if (marketRes.data?.[0]) {
-      const m = marketRes.data[0];
-      const prices = JSON.parse(m.outcomePrices || "[]");
-      market = {
-        question: m.question,
-        slug: m.slug,
-        upPrice: parseFloat(prices[0]) || 0,
-        downPrice: parseFloat(prices[1]) || 0,
-        volume: m.volumeNum || 0,
-        liquidity: m.liquidityNum || 0,
-        endDate: m.endDate
-      };
-    }
-    
-    // Calculate signal based on Polymarket prices
-    // If UP price > 55%, market thinks UP so signal DOWN (fade)
-    // If DOWN price > 55%, market thinks DOWN so signal UP (fade)
-    const signal = market?.upPrice > 0.55 ? "DOWN" :
-                   market?.downPrice > 0.55 ? "UP" : "NEUTRAL";
-    
-    res.json({
-      btc,
-      market,
-      signal,
-      windowTs,
-      timestamp: Date.now()
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  const result = {
+    profile: null, positionsValue: 0, positions: [], closedPositions: [],
+    activity: [], marketsTraded: 0, totalPnl: 0, realizedPnl: 0,
+    biggestWin: 0, wins: 0, losses: 0, winRate: 0, totalVolume: 0,
+  };
+
+  const [profileRes, valueRes, positionsRes, tradedRes, closedRes, activityRes] = await Promise.all([
+    axios.get(`${GAMMA_API}/public-profile`, { params: { address: addr }, timeout: 5000 }).catch(() => null),
+    axios.get(`${DATA_API}/value`, { params: { user: addr }, timeout: 5000 }).catch(() => null),
+    axios.get(`${DATA_API}/positions`, { params: { user: addr, limit: 50, sortBy: "CASHPNL", sortDirection: "DESC" }, timeout: 5000 }).catch(() => null),
+    axios.get(`${DATA_API}/traded`, { params: { user: addr }, timeout: 5000 }).catch(() => null),
+    axios.get(`${DATA_API}/closed-positions`, { params: { user: addr, limit: 50, sortBy: "REALIZEDPNL", sortDirection: "DESC" }, timeout: 5000 }).catch(() => null),
+    axios.get(`${DATA_API}/activity`, { params: { user: addr, limit: 100 }, timeout: 5000 }).catch(() => null),
+  ]);
+
+  // Profile
+  if (profileRes?.data) {
+    const p = profileRes.data;
+    result.profile = {
+      name: p.name || p.pseudonym || "Anon",
+      bio: p.bio || "",
+      image: p.profileImage || null,
+      createdAt: p.createdAt,
+      xUsername: p.xUsername || null,
+      verified: p.verifiedBadge || false,
+    };
   }
-});
 
-// Real on-chain portfolio (multi-chain via Etherscan V2)
-app.get("/api/portfolio/real", async (req, res) => {
-  try {
-    const portfolio = await getMultiChainPortfolio();
-    
-    if (!portfolio) {
-      return res.status(500).json({ error: "Failed to fetch portfolio" });
-    }
-    
-    res.json(portfolio);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  // Positions value
+  if (valueRes?.data?.length > 0) {
+    result.positionsValue = valueRes.data[0].value || 0;
   }
-});
 
-// Get BTC chart data
-app.get("/api/chart", async (req, res) => {
-  try {
-    const response = await axios.get(`${COINGECKO_API}/coins/bitcoin/ohlc?vs_currency=usd&days=1`);
-    // Format: [timestamp, open, high, low, close]
-    const candles = response.data.map(c => ({
-      t: c[0],
-      o: c[1],
-      h: c[2],
-      l: c[3],
-      c: c[4]
+  // Open positions
+  if (positionsRes?.data?.length > 0) {
+    result.positions = positionsRes.data.map(p => ({
+      title: p.title, outcome: p.outcome, size: p.size, avgPrice: p.avgPrice,
+      curPrice: p.curPrice, currentValue: p.currentValue, cashPnl: p.cashPnl,
+      percentPnl: p.percentPnl,
     }));
-    res.json({ candles, timestamp: Date.now() });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    result.totalPnl = positionsRes.data.reduce((sum, p) => sum + (p.cashPnl || 0), 0);
   }
+
+  // Markets traded count
+  if (tradedRes?.data) {
+    result.marketsTraded = tradedRes.data.traded || 0;
+  }
+
+  // Closed positions -> realized PnL, wins, losses, biggest win
+  if (closedRes?.data?.length > 0) {
+    result.closedPositions = closedRes.data.map(p => ({
+      title: p.title, outcome: p.outcome, avgPrice: p.avgPrice,
+      totalBought: p.totalBought, realizedPnl: p.realizedPnl, curPrice: p.curPrice,
+      timestamp: p.timestamp,
+    }));
+    result.realizedPnl = closedRes.data.reduce((sum, p) => sum + (p.realizedPnl || 0), 0);
+    result.biggestWin = Math.max(0, ...closedRes.data.map(p => p.realizedPnl || 0));
+    result.wins = closedRes.data.filter(p => (p.realizedPnl || 0) > 0).length;
+    result.losses = closedRes.data.filter(p => (p.realizedPnl || 0) < 0).length;
+    const closed = result.wins + result.losses;
+    result.winRate = closed > 0 ? Math.round((result.wins / closed) * 100) : 0;
+  }
+
+  // Activity -> total volume, recent activity list
+  if (activityRes?.data?.length > 0) {
+    const acts = activityRes.data;
+    result.totalVolume = acts.reduce((sum, a) => sum + (a.usdcSize || 0), 0);
+    result.activity = acts.slice(0, 15).map(a => ({
+      type: a.type, side: a.side, title: a.title, outcome: a.outcome,
+      size: a.size, usdcSize: a.usdcSize, price: a.price,
+      timestamp: a.timestamp, tx: a.transactionHash,
+    }));
+  }
+
+  res.json(result);
 });
 
-// Execute trade (simulated for now - full CLOB signing requires wallet)
-app.post("/api/trade", async (req, res) => {
-  try {
-    const { marketSlug, side, amount } = req.body;
-    
-    // Validate
-    if (!marketSlug || !side || !amount) {
-      return res.status(400).json({ error: "Missing required fields: marketSlug, side, amount" });
-    }
-    
-    if (amount > 0.1) {
-      return res.status(400).json({ error: "Max trade amount is 0.1 USDC" });
-    }
-    
-    // For now, return simulated trade
-    // Full implementation requires:
-    // 1. Create order with EIP712 signature
-    // 2. Sign with wallet private key  
-    // 3. POST to CLOB /orders endpoint
-    
-    const trade = {
-      id: "trade_" + Date.now(),
-      marketSlug,
-      side: side.toUpperCase(),
-      amount: parseFloat(amount),
-      status: "SIMULATED",
-      message: "CLOB signing not implemented yet - trade is simulated",
-      timestamp: Date.now()
-    };
-    
-    res.json({ 
-      success: true, 
-      trade,
-      note: "This is a simulated trade. Full CLOB integration requires EIP712 order signing."
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+// ===== PROTECTED ENDPOINTS (require auth) =====
 
-// Get single market details
-app.get("/api/market/:id", async (req, res) => {
-  try {
-    const market = await getMarketDetails(req.params.id);
-    if (!market) {
-      return res.status(404).json({ error: "Market not found" });
-    }
-    res.json({ market, timestamp: Date.now() });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+// Trade
+app.post("/api/trade", requireAuth, async (req, res) => {
+  if (IS_READONLY) return res.status(403).json({ error: "Read-only mode. Trading disabled." });
+  if (!HAS_TRADING) return res.status(400).json({ error: "Trading keys not configured" });
 
-// Get orderbook
-app.get("/api/orderbook/:tokenId", async (req, res) => {
   try {
-    const orderbook = await getOrderbook(req.params.tokenId);
-    if (!orderbook) {
-      return res.status(404).json({ error: "Orderbook not found" });
-    }
-    res.json({ orderbook, timestamp: Date.now() });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+    const { side, size, price } = req.body;
+    if (!side || !size) return res.status(400).json({ error: "Missing side or size" });
 
-// Scanner - find opportunities (5m markets focus)
-app.get("/api/scan", async (req, res) => {
-  try {
-    const mode = req.query.mode || '5m'; // '5m' or 'long'
-    const is5m = mode === '5m';
-    
-    const markets = await getMarkets(50, is5m);
-    
-    // Find opportunities based on volume and price
-    const opportunities = markets
-      .filter(m => m.volume > 10000) // Lower threshold for 5m markets
-      .sort((a, b) => b.volume - a.volume)
-      .slice(0, 5)
-      .map(m => {
-        // For 5m markets: up/down logic
-        // For regular: yes/no logic
-        const is5mMarket = m.is5m;
-        const price = is5mMarket ? m.yesPrice : m.yesPrice;
-        
-        const signal = price > 0.6 ? "STRONG_BUY" : 
-                      price > 0.4 ? "BUY" : 
-                      price < 0.3 ? "SELL" : "HOLD";
-        
-        return {
-          id: m.id,
-          question: m.question,
-          volume: m.volume,
-          price: price,
-          signal,
-          reason: is5mMarket 
-            ? (price > 0.5 ? "Bullish momentum" : "Bearish momentum")
-            : (price > 0.5 ? "High probability" : "Low probability"),
-          category: m.category,
-          is5m: is5mMarket,
-          tokenYes: m.tokenYes,
-          tokenNo: m.tokenNo
-        };
-      });
-    
-    res.json({ opportunities, mode, timestamp: Date.now() });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+    const market = await findActive5mMarket();
+    if (!market) return res.status(400).json({ error: "No active 5m market" });
 
-// Trade execution
-app.post("/api/trade", async (req, res) => {
-  try {
-    const { marketId, side, amount } = req.body;
-    
-    if (!marketId || !side || !amount) {
-      return res.status(400).json({ error: "Missing required fields" });
+    const tokenId = side === "UP" ? market.upTokenId : market.downTokenId;
+    const client = getClobClient();
+    if (!client) return res.status(500).json({ error: "ClobClient not available" });
+
+    let tickSize = "0.01";
+    try { tickSize = (await client.getTickSize(tokenId)) || "0.01"; } catch (e) {}
+
+    let orderPrice = price;
+    if (!orderPrice) {
+      const book = await client.getOrderBook(tokenId);
+      const bestAsk = book.asks?.length ? book.asks[book.asks.length - 1] : null;
+      if (!bestAsk) return res.status(400).json({ error: "No asks in orderbook" });
+      orderPrice = parseFloat(bestAsk.price);
     }
-    
-    // In production: call Polymarket API
-    // For now: mock trade
-    const trade = {
-      id: Math.random().toString(36).substr(2, 9),
-      marketId,
+
+    const orderSize = Math.max(5, parseInt(size) || 5);
+    console.log(`[trade] ${side} x${orderSize} @ $${orderPrice} on ${market.question}`);
+
+    const result = await client.createAndPostOrder(
+      { tokenID: tokenId, price: orderPrice, side: "BUY", size: orderSize, feeRateBps: 1000, nonce: 0 },
+      { tickSize, negRisk: market.negRisk }
+    );
+
+    console.log("[trade] result:", result);
+
+    res.json({
+      success: result.success || false,
+      orderID: result.orderID,
+      status: result.status,
+      market: market.question,
       side,
-      amount,
-      price: side === "yes" ? 0.42 : 0.58,
-      timestamp: Date.now(),
-      status: "filled"
-    };
-    
-    // Update portfolio
-    const cost = amount * trade.price;
-    if (cost > portfolio.balance) {
-      return res.status(400).json({ error: "Insufficient balance" });
-    }
-    
-    portfolio.balance -= cost;
-    portfolio.positions.push({
-      ...trade,
-      currentValue: cost,
-      pnl: 0
+      size: orderSize,
+      price: orderPrice,
+      cost: (orderSize * orderPrice).toFixed(2),
+      tx: result.transactionsHashes?.[0] || null,
+      error: result.errorMsg || result.error || null,
     });
-    
-    portfolio.history.push(trade);
-    
-    res.json({ trade, portfolio: portfolio.balance });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  } catch (e) {
+    console.error("[trade] error:", e.message);
+    res.status(500).json({ error: e.message });
   }
 });
 
-// Signals - AI sentiment analysis
-app.get("/api/signals", async (req, res) => {
+// Cancel all orders
+app.post("/api/cancel-all", requireAuth, async (req, res) => {
+  if (IS_READONLY) return res.status(403).json({ error: "Read-only mode. Trading disabled." });
+  if (!HAS_TRADING) return res.status(400).json({ error: "Trading keys not configured" });
   try {
-    // In production: analyze Twitter/X sentiment
-    const signals = [
-      {
-        market: "BTC $100K by 2026",
-        sentiment: 0.72,
-        trend: "bullish",
-        twitterVolume: 1250,
-        newsSentiment: "positive",
-        recommendation: "BUY yes"
-      },
-      {
-        market: "Trump BTC reserve",
-        sentiment: 0.65,
-        trend: "bullish",
-        twitterVolume: 3420,
-        newsSentiment: "positive",
-        recommendation: "BUY yes"
-      },
-      {
-        market: "ETH flip BTC",
-        sentiment: 0.35,
-        trend: "bearish",
-        twitterVolume: 890,
-        newsSentiment: "neutral",
-        recommendation: "SELL/BUY no"
-      }
-    ];
-    
-    res.json({ signals, timestamp: Date.now() });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    const client = getClobClient();
+    if (!client) return res.status(500).json({ error: "ClobClient not available" });
+    const result = await client.cancelAll();
+    res.json({ success: true, ...result });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
-// Portfolio history
-app.get("/api/history", (req, res) => {
-  res.json({ history: portfolio.history, timestamp: Date.now() });
-});
+// BTC chart - supports ?interval=1s|1m|5m|15m
+app.get("/api/chart", async (req, res) => {
+  const INTERVALS = {
+    "1s": { binance: "1s", limit: 300 },   // 5 min of 1s candles
+    "1m": { binance: "1m", limit: 120 },   // 2 hours of 1m candles
+    "5m": { binance: "5m", limit: 96 },    // 8 hours of 5m candles
+    "15m": { binance: "15m", limit: 96 },  // 24 hours of 15m candles
+  };
+  const interval = INTERVALS[req.query.interval] || INTERVALS["1s"];
 
-// Settings
-app.get("/api/settings", (req, res) => {
-  res.json({
-    maxTradeSize: 100,
-    stopLoss: 15,
-    takeProfit: 50,
-    autoTrade: false,
-    notifications: true
-  });
-});
-
-// Get available categories/tags
-app.get("/api/tags", async (req, res) => {
   try {
-    const response = await axios.get(`${GAMMA_API}/tags`, {
-      params: { limit: 50 }
+    const r = await axios.get("https://api.binance.com/api/v3/klines", {
+      params: { symbol: "BTCUSDT", interval: interval.binance, limit: interval.limit },
+      timeout: 5000,
     });
-    res.json({ tags: response.data, timestamp: Date.now() });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    const candles = r.data.map(c => ({ t: c[0], o: +c[1], h: +c[2], l: +c[3], c: +c[4] }));
+    return res.json({ candles, interval: req.query.interval || "1s", source: "binance", timestamp: Date.now() });
+  } catch (e) {
+    console.log("Binance chart error:", e.message);
+    res.status(500).json({ error: "Chart data unavailable: " + e.message });
   }
 });
 
-app.post("/api/settings", (req, res) => {
-  const { maxTradeSize, stopLoss, takeProfit, autoTrade, notifications } = req.body;
-  // In production: save to DB
-  res.json({ success: true, settings: req.body });
-});
+// ===== PAGES =====
+app.get("/", (req, res) => res.sendFile(__dirname + "/index.html"));
+app.get("/markets", (req, res) => res.sendFile(__dirname + "/markets.html"));
 
-// Serve frontend
-app.get("/", (req, res) => {
-  res.sendFile(__dirname + "/index.html");
-});
-
+// ===== START =====
 app.listen(PORT, () => {
-  console.log(`🦞 rPoly API running on port ${PORT}`);
+  let eoaAddr = "NOT SET";
+  try { eoaAddr = new Wallet(PRIVATE_KEY).address; } catch (e) {}
+
+  console.log("");
+  console.log("  rPoly v2.1.0");
+  console.log("  http://localhost:" + PORT);
+  console.log("");
+  console.log("  EOA:     " + eoaAddr);
+  console.log("  Proxy:   " + (PROXY_ADDRESS || "NOT SET"));
+  console.log("  Mode:    " + RPOLY_MODE.toUpperCase());
+  console.log("  Trading: " + (IS_READONLY ? "DISABLED (readonly)" : HAS_TRADING ? "LIVE (signatureType=2 GNOSIS_SAFE)" : "NO KEYS"));
+  console.log("  Auth:    " + (IS_READONLY ? "NOT NEEDED (readonly)" : HAS_AUTH ? "ENABLED" : "OPEN"));
+  console.log("");
 });

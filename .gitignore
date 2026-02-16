@@ -1,5 +1,15 @@
+# Dependencies
+node_modules/
+
+# Secrets - NEVER commit
+.env
+credentials.json
+derived-creds.json
+
+# Vercel
 .vercel
-# Sensitive scripts - do not commit
+
+# Sensitive scripts
 deposit.js
 send-usdc.js
 test-trade.js
@@ -7,7 +17,9 @@ test-addr.js
 check-balance.js
 check-base.js
 check-poly.js
-*.env
-credentials.json
+trade-proxy.js
+approve-and-trade.js
+
+# Local dev
 memory/
-node_modules/
+brain/

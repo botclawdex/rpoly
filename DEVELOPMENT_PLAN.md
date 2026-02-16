@@ -1,161 +1,127 @@
 # rPoly Development Plan
 
-## Status: IN PROGRESS
-**Last Updated:** 2026-02-15 22:23
+## Current Version: v2.1.0
+**Last Updated:** 2026-02-16
 
 ---
 
-## v1.0.0 - MVP (DONE ✅)
-- [x] Basic Express server with mock data
+## v1.0.0 - MVP (DONE)
+- [x] Basic Express server
 - [x] Frontend dashboard with retro hacker UI
-- [x] Markets list
-- [x] Basic scanner
-- [x] Signals (mock)
-- [x] Portfolio tracking
-- [x] Settings form
+- [x] Markets list from Gamma API
+- [x] Basic scanner and signals (mock)
+- [x] Portfolio tracking (mock)
 
 ---
 
-## v1.2.0 - 5m Markets Focus (DONE ✅)
-- [x] Use /markets API instead of /events ✅
-- [x] Filter for 5m markets (slug pattern: btc-updown-5m-{timestamp}) ✅
+## v1.3.0 - Real Data (DONE)
+- [x] BTC price from CoinGecko
+- [x] 5m Polymarket market data
+- [x] On-chain portfolio via Base RPC
+- [x] BTC Chart (24h OHLC)
 
 ---
 
-## v1.3.0 - Real Data (DONE ✅)
-- [x] Analyze section - BTC price from CoinGecko ✅
-- [x] 5m Polymarket market data ✅
-- [x] On-chain portfolio via Base RPC ✅
-- [x] Dashboard shows ETH + USDC separately ✅
-- [x] BTC Chart (24h OHLC from CoinGecko) ✅
+## v1.4.0 - CLOB Trading (DONE)
+- [x] First successful trade on Polymarket CLOB
+- [x] signatureType=2 (Gnosis Safe) discovery
+- [x] Gasless trading (no MATIC, no approve needed)
+- [x] L2 API credentials derived from EOA
 
 ---
 
-## v1.4.0 - CLOB Integration (IN PROGRESS 🔄)
-**Goal:** Execute real trades on Polymarket CLOB
+## v2.0.0 - Dashboard Redesign (DONE)
+- [x] Full-width responsive layout
+- [x] Environment variables moved to `.env`
+- [x] Auth token protection for trade endpoints
+- [x] Read-only mode (`RPOLY_MODE=readonly`) for public deploy
+- [x] Removed login screen (backend-managed trading)
 
-### What's Done ✅
-- [x] Trade endpoint created (POST /api/trade)
-- [x] ethers.js installed
-- [x] $5 USDC bridged from Base to Polymarket
+---
 
-### What's Needed ❌
-- [ ] **MATIC on Polygon** - $2-5 for gas (~$0.01 per tx)
-- [ ] API credentials derivation (sign EIP-712 → get apiKey/secret)
-- [ ] Token allowances (approve USDC)
-- [ ] Full CLOB client integration
+## v2.1.0 - Live Data & Rich Dashboard (DONE)
+- [x] **RTDS WebSocket** - real-time BTC price from Polymarket
+- [x] **Custom sparkline chart** - main chart from WS ticks
+- [x] **TradingView mini candlestick** - Binance candles (1s/1m/5m)
+- [x] **Binance API** for chart data and BTC price fallback
+- [x] **Portfolio card** - Cash, Proxy/EOA, Positions Value, Volume, Realized/Unrealized P/L
+- [x] **Profile card** - Clawdex name, joined date, markets traded, W/L record, win rate, best trade
+- [x] **Activity feed** - full onchain activity (TRADE, REDEEM, SPLIT, etc.) from Data API
+- [x] **6 Data API endpoints** - positions, closed-positions, value, traded, activity, profile
+- [x] **Header clock** - UTC + PL time with green glow effect
+- [x] **CLOB WebSocket** - live order flow from active 5m market
+- [x] **Floating trade bubbles** - animated BUY/SELL indicators on chart
+  - Trades: bright large bubbles with glow (+ $2.62 3sh)
+  - Orders: dim smaller bubbles (BID 52¢ / ASK 48¢)
+- [x] **Countdown timers** - time remaining for each 5m market
+- [x] **End times (UTC/PL)** - displayed in markets table
+- [x] **5m Markets table** - Market | End (UTC/PL) | Time Left | Up/Down | Volume | Status
 
-### Technical Details
+---
+
+## v2.2.0 - Autonomous Trading (NEXT)
+**Goal:** AI agent executes trades automatically
+
+### Trading Strategy
 ```
-Chain: Polygon (chain ID 137)
-Wallet: 0x7Ca66FFAF6A5D4DE8492C97c61753B699350AD77
-Private Key: From FARCASTER_PRIVATE_KEY env var
-
-Signature Type: 0 (EOA)
-Funder: Same as wallet address
-```
-
-### Why Polygon?
-- Polymarket runs on **Polygon** (chain 137), NOT Base
-- Deposits FROM Base work, but trading happens on Polygon
-- Need MATIC for gas (Polygon native token)
-- Gas is very cheap: $0.01-0.10 per transaction
-
-### Bridge Transaction (TESTED ✅)
-- **Tx:** 0x5ff22296682ba97fc2e117080112fd7443fbdd1a9c58562917dd9cb74cdcbf66
-- **Amount:** $5 USDC
-- **Status:** COMPLETED
-
----
-
-## v1.5.0 - AUTONOMOUS TRADING
-**Goal:** Full auto-trading with anti-crowd strategy
-
-### Trading Logic
-```
-1. Fetch current 5m market from Gamma API
-2. Get sentiment from Twitter/X (anti-crowd)
-3. If UP price > 55% → Signal: DOWN (fade)
-4. If DOWN price > 55% → Signal: UP (fade)
-5. If NEUTRAL → No trade
-6. Execute trade via CLOB API (0.50-1.00 USDC max)
+1. Every 5 minutes, check new BTC market
+2. Analyze signal (sentiment, price momentum, crowd fade)
+3. If confident → place trade via CLOB API
+4. Monitor position → auto-close if profitable
+5. Track all results → learn and adapt
 ```
 
-### Endpoints to Add
-- [ ] `POST /api/trade/execute` - Execute real trade
-- [ ] `GET /api/positions` - Get open positions
-- [ ] `GET /api/orders` - Get open orders
+### Tasks
+- [ ] CLOB User Channel WebSocket (server-side) for real-time trade fills
+- [ ] Auto-refresh balance/activity on trade fill events
+- [ ] Strategy engine with configurable parameters
+- [ ] Trade execution loop (every 5m cycle)
+- [ ] Position monitoring and auto-exit
+- [ ] Trade journal with win/loss tracking
+- [ ] Telegram/Discord notifications for trades
 
 ---
 
-## v1.6.0 - Advanced Trading
+## v2.3.0 - Advanced Strategies
 - [ ] Multiple strategy modes (safe/aggressive/degen)
-- [ ] Stop-loss / Take-profit (manual close)
-- [ ] Position sizing based on confidence
-- [ ] Trade history persistence
+- [ ] Confidence-based position sizing
+- [ ] Historical backtesting
+- [ ] Multi-market support (not just BTC 5m)
 
 ---
 
-## v2.0.0 - Pro
+## v3.0.0 - Pro
 - [ ] x402 payments for signal subscriptions
 - [ ] API for external bots
-- [ ] Multi-chain support (when Base gets prediction markets)
+- [ ] Vercel production deployment with monitoring
+- [ ] Multi-chain support
 
 ---
 
-## Current Wallet Balance
+## Data Sources
 
-### On Base (for bridging)
-```
-ETH: 0.0010 ETH (~$2.43) - for Base gas
-USDC: $4.83 - can bridge more if needed
-Total: ~$7.26
-```
+| Source | What | How | Rate |
+|--------|------|-----|------|
+| Polymarket RTDS WS | BTC price | WebSocket (browser) | Real-time |
+| Polymarket CLOB WS | Orders/trades | WebSocket (browser) | Real-time |
+| Polymarket Gamma API | Markets, profile | HTTP polling (30-60s) | ~10 req/min |
+| Polymarket Data API | Positions, activity, P/L | HTTP polling (60s) | ~10 req/min |
+| Polymarket CLOB API | Trading, orderbook | HTTP on-demand | As needed |
+| Binance API | BTC candles, price | HTTP polling (30s-5m) | No limit |
+| Polygon RPC | USDC/MATIC balances | HTTP polling (15s) | ~4 req/15s |
 
-### On Polymarket (ready to trade)
-```
-USDC: $5.00 - deposited via bridge ✅
-```
+---
 
-### What's Missing
-```
-MATIC: $0-5 (for Polygon gas) ❌
+## Quick Start
+
+```bash
+cp .env.example .env
+# Fill in credentials
+npm install
+node server.js
+# http://localhost:3001
 ```
 
 ---
 
-## Strategy: Anti-Crowd
-
-### Core Idea
-- Buy opposite of crowd sentiment
-- When markets are >55% UP → expect DOWN (fade)
-- When markets are >55% DOWN → expect UP (buy dip)
-
-### Parameters
-- **Max Trade Size:** $0.50 - $1.00 per trade
-- **Stop Loss:** N/A (5m markets auto-resolve in 5 min)
-- **Take Profit:** Close when P&L > 50%
-
----
-
-## Documentation
-- See ARCHITECTURE.md for full system overview
-- See TRADING_GUIDE.md for strategy explanation
-
----
-
-## Notes
-- Theme: Retro Hacker (green phosphor, CRT scanlines)
-- Stack: Node.js + Express, Vanilla JS frontend
-- Deployment: Vercel
-- APIs: Polymarket Gamma, CoinGecko, Base RPC, Polymarket CLOB
-
----
-
-## Quick Start for Live Trading
-
-1. Get MATIC ($2-5) on Polygon
-2. Run: `node scripts/derive-api-creds.js` (to create API key)
-3. Run: `node scripts/set-allowances.js` (approve USDC)
-4. Set environment variables
-5. Deploy and test trade endpoint
+*Clawdex / rPoly*
