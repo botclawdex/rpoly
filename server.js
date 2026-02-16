@@ -212,29 +212,70 @@ app.get("/api/dashboard", async (req, res) => {
 
   let orderbook = null;
   let openOrders = [];
+  let midpoint = null;
+  let spread = null;
 
   if (market?.upTokenId) {
     const client = getClobClient();
-    if (client) {
-      try { orderbook = await client.getOrderBook(market.upTokenId); } catch (e) { console.log("Orderbook:", e.message); }
-      try { openOrders = (await client.getOpenOrders()) || []; } catch (e) { console.log("OpenOrders:", e.message); }
-    }
+    const tokenId = market.upTokenId;
+
+    const [obResult, ordersResult, midResult, spreadResult] = await Promise.all([
+      client ? client.getOrderBook(tokenId).catch(e => { console.log("Orderbook:", e.message); return null; }) : null,
+      client ? client.getOpenOrders().catch(e => { console.log("OpenOrders:", e.message); return []; }) : [],
+      axios.get(CLOB_API + "/midpoint", { params: { token_id: tokenId }, timeout: 3000 }).catch(() => null),
+      axios.get(CLOB_API + "/spread", { params: { token_id: tokenId }, timeout: 3000 }).catch(() => null),
+    ]);
+
+    orderbook = obResult;
+    openOrders = ordersResult || [];
+    midpoint = midResult?.data?.mid ? parseFloat(midResult.data.mid) : null;
+    spread = spreadResult?.data?.spread ? parseFloat(spreadResult.data.spread) : null;
   }
 
-  const signal = market
-    ? market.upPrice > 0.55 ? "DOWN" : market.downPrice > 0.55 ? "UP" : "NEUTRAL"
-    : "NO_MARKET";
+  // Build rich signal
+  let signal;
+  if (!market) {
+    signal = { direction: "NO_MARKET", confidence: 0, factors: {}, midpoint: null, spread: null };
+  } else {
+    const up = market.upPrice;
+    const dn = market.downPrice;
+    const skew = Math.abs(up - 0.5);
+    const confidence = Math.min(Math.round(skew * 200), 100);
+
+    const direction = up > 0.55 ? "DOWN" : dn > 0.55 ? "UP" : "NEUTRAL";
+
+    const askDepth = orderbook?.asks?.length || 0;
+    const bidDepth = orderbook?.bids?.length || 0;
+    const bookBias = bidDepth > askDepth * 1.3 ? "BUY" : askDepth > bidDepth * 1.3 ? "SELL" : "BALANCED";
+    const btcBias = btc.change24h > 0.5 ? "UP" : btc.change24h < -0.5 ? "DOWN" : "FLAT";
+    const volBias = (market.volume || 0) > 5000 ? "HIGH" : "LOW";
+
+    signal = {
+      direction,
+      confidence,
+      midpoint,
+      spread,
+      factors: {
+        marketSkew: { label: "Market Odds", value: up, pct: Math.round(up * 100), bias: up > 0.55 ? "DOWN" : dn > 0.55 ? "UP" : "NEUTRAL", strength: Math.min(Math.round(skew * 10), 5) },
+        btcTrend:   { label: "BTC 24h", value: btc.change24h, bias: btcBias, strength: Math.min(Math.round(Math.abs(btc.change24h)), 5) },
+        volume:     { label: "Volume", value: market.volume || 0, bias: volBias, strength: volBias === "HIGH" ? 4 : (market.volume || 0) > 1000 ? 2 : 1 },
+        bookDepth:  { label: "Book Depth", askDepth, bidDepth, bias: bookBias, strength: Math.min(Math.round((askDepth + bidDepth) / 5), 5) },
+      },
+    };
+  }
+
+  const obData = orderbook ? {
+    bestAsk: orderbook.asks?.length ? orderbook.asks[orderbook.asks.length - 1] : null,
+    bestBid: orderbook.bids?.length ? orderbook.bids[0] : null,
+    askDepth: orderbook.asks?.length || 0,
+    bidDepth: orderbook.bids?.length || 0,
+  } : null;
 
   const result = {
     balances,
     btc,
     market,
-    orderbook: orderbook ? {
-      bestAsk: orderbook.asks?.length ? orderbook.asks[orderbook.asks.length - 1] : null,
-      bestBid: orderbook.bids?.length ? orderbook.bids[0] : null,
-      askDepth: orderbook.asks?.length || 0,
-      bidDepth: orderbook.bids?.length || 0,
-    } : null,
+    orderbook: obData,
     signal,
     openOrders,
     hasTradingKeys: HAS_TRADING,
@@ -247,7 +288,8 @@ app.get("/api/dashboard", async (req, res) => {
     proxyUsdc: balances.proxy?.usdc,
     btcPrice: btc.price,
     market: market?.question?.slice(0, 40) || "none",
-    signal,
+    signal: signal.direction,
+    confidence: signal.confidence,
   });
 
   res.json(result);

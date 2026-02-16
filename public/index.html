@@ -97,14 +97,44 @@
     .down { color:var(--red); }
     .neutral { color:var(--yellow); }
 
-    /* Signal badge */
-    .signal-badge {
-      display:inline-block; padding:3px 10px; font-size:12px; font-weight:700;
-      border:1px solid;
-    }
-    .signal-badge.up { background:var(--green-glow); color:var(--green); border-color:var(--green); }
-    .signal-badge.down { background:var(--red-glow); color:var(--red); border-color:var(--red); }
-    .signal-badge.neutral { background:rgba(255,170,0,.1); color:var(--yellow); border-color:var(--yellow); }
+    /* Market Analysis panel */
+    .ma-panel { display:flex; flex-direction:column; gap:10px; }
+    .ma-section { border-top:1px solid var(--border); padding-top:8px; }
+    .ma-section:first-child { border-top:none; padding-top:0; }
+    .ma-section-label { font-size:8px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px; margin-bottom:4px; }
+
+    /* Confidence arc */
+    .conf-gauge { text-align:center; padding:4px 0; }
+    .conf-gauge svg { display:block; margin:0 auto; }
+    .conf-direction { font-size:20px; font-weight:900; letter-spacing:2px; }
+    .conf-direction.up { color:var(--green); text-shadow:0 0 12px rgba(0,255,65,0.5); }
+    .conf-direction.down { color:var(--red); text-shadow:0 0 12px rgba(255,50,50,0.5); }
+    .conf-direction.neutral { color:var(--yellow); text-shadow:0 0 8px rgba(255,170,0,0.3); }
+    .conf-pct { font-size:10px; color:var(--text-dim); margin-top:2px; }
+
+    /* Sentiment bar */
+    .sent-bar-wrap { display:flex; align-items:center; gap:6px; font-size:10px; font-weight:700; }
+    .sent-bar { flex:1; height:6px; border-radius:3px; background:var(--card-bg); overflow:hidden; display:flex; }
+    .sent-bar-up { background:var(--green); height:100%; transition:width .4s ease; }
+    .sent-bar-dn { background:var(--red); height:100%; transition:width .4s ease; }
+    .sent-mid { font-size:9px; color:var(--text-dim); text-align:center; margin-top:3px; }
+
+    /* Depth bars */
+    .depth-row { display:flex; align-items:center; gap:6px; font-size:10px; padding:2px 0; }
+    .depth-label { width:28px; font-weight:700; font-size:9px; }
+    .depth-price { width:40px; font-weight:700; }
+    .depth-size { width:40px; color:var(--text-dim); font-size:9px; text-align:right; }
+    .depth-bar-wrap { flex:1; height:4px; border-radius:2px; background:rgba(255,255,255,0.05); }
+    .depth-bar-fill { height:100%; border-radius:2px; transition:width .4s ease; }
+
+    /* Factor rows */
+    .factor-row { display:flex; align-items:center; justify-content:space-between; font-size:10px; padding:2px 0; }
+    .factor-label { color:var(--text-dim); width:70px; }
+    .factor-value { font-weight:700; flex:1; text-align:center; }
+    .factor-dots { display:flex; gap:2px; }
+    .factor-dot { width:5px; height:5px; border-radius:50%; background:rgba(255,255,255,0.1); }
+    .factor-dot.active { background:var(--green); box-shadow:0 0 4px rgba(0,255,65,0.4); }
+    .factor-dot.active.bearish { background:var(--red); box-shadow:0 0 4px rgba(255,50,50,0.4); }
 
     /* Chart */
     .chart-header {
@@ -339,29 +369,14 @@
       <div id="flow-overlay"></div>
     </div>
 
-    <!-- Sidebar -->
-    <div style="display:flex;flex-direction:column;gap:12px;">
-      <div class="card">
-        <div class="card-label">Signal</div>
-        <div style="text-align:center;padding:6px 0;">
-          <div id="signal-badge"><span class="signal-badge neutral">...</span></div>
+    <!-- Sidebar: Market Analysis -->
+    <div style="display:flex;flex-direction:column;">
+      <div class="card" style="flex:1;display:flex;flex-direction:column;">
+        <div class="card-label">Market Analysis</div>
+        <div class="ma-panel" id="ma-panel">
+          <div style="color:var(--text-dim);font-size:11px;text-align:center;padding:20px 0;">Loading...</div>
         </div>
       </div>
-
-      <div class="card">
-        <div class="card-label">Active 5m Market</div>
-        <div id="market-info" style="font-size:11px;">
-          <div style="color:var(--text-dim)">Loading...</div>
-        </div>
-      </div>
-
-      <div class="card" style="flex:1;">
-        <div class="card-label">Orderbook (Up)</div>
-        <div id="orderbook-mini">
-          <div style="color:var(--text-dim);font-size:11px;">--</div>
-        </div>
-      </div>
-
     </div>
   </div>
 
@@ -690,44 +705,129 @@ function renderDashboard(d) {
   document.getElementById('eoa-usdc').textContent = '$' + (b.eoa?.usdc || 0).toFixed(2);
   document.getElementById('total-usdc').textContent = '$' + (b.totalUsdc || 0).toFixed(2);
 
-  // Signal
-  const sig = d.signal || 'NO_MARKET';
-  const cls = sig === 'UP' ? 'up' : sig === 'DOWN' ? 'down' : 'neutral';
-  document.getElementById('signal-badge').innerHTML = '<span class="signal-badge ' + cls + '">' + sig + '</span>';
+  // Market Analysis panel
+  renderMarketAnalysis(d);
+}
 
-  // Market
-  const mi = document.getElementById('market-info');
-  if (d.market) {
-    mi.innerHTML =
-      '<div style="font-weight:700;margin-bottom:4px;font-size:10px;">' + d.market.question + '</div>' +
-      '<div style="display:flex;gap:12px;">' +
-        '<span>Up: <span class="up">' + (d.market.upPrice * 100).toFixed(0) + '%</span></span>' +
-        '<span>Down: <span class="down">' + (d.market.downPrice * 100).toFixed(0) + '%</span></span>' +
-      '</div>' +
-      '<div style="color:var(--text-dim);margin-top:4px;">Vol: $' + ((d.market.volume || 0)/1000).toFixed(1) + 'K</div>';
-  } else {
-    mi.innerHTML = '<div style="color:var(--text-dim)">No active market</div>';
-  }
-
-  // Orderbook
+// ===== MARKET ANALYSIS PANEL =====
+function renderMarketAnalysis(d) {
+  const panel = document.getElementById('ma-panel');
+  const s = d.signal || {};
+  const dir = s.direction || 'NO_MARKET';
+  const conf = s.confidence || 0;
   const ob = d.orderbook;
-  const obEl = document.getElementById('orderbook-mini');
-  if (ob?.bestAsk) {
-    obEl.innerHTML =
-      '<div style="margin-bottom:6px;">' +
-        '<div class="ob-row"><span style="color:var(--text-dim);font-size:10px;">Best Ask</span></div>' +
-        '<div class="ob-row"><span class="down ob-price">$' + ob.bestAsk.price + '</span><span class="ob-size">' + parseFloat(ob.bestAsk.size).toFixed(0) + ' sh</span></div>' +
-        '<div class="ob-bar" style="background:var(--red);width:100%;"></div>' +
-      '</div>' +
-      '<div>' +
-        '<div class="ob-row"><span style="color:var(--text-dim);font-size:10px;">Best Bid</span></div>' +
-        '<div class="ob-row"><span class="up ob-price">$' + (ob.bestBid?.price || '--') + '</span><span class="ob-size">' + (ob.bestBid ? parseFloat(ob.bestBid.size).toFixed(0) + ' sh' : '--') + '</span></div>' +
-        '<div class="ob-bar" style="background:var(--green);width:40%;"></div>' +
-      '</div>' +
-      '<div style="margin-top:6px;font-size:9px;color:var(--text-dim);">' + ob.askDepth + 'A / ' + ob.bidDepth + 'B</div>';
-  } else {
-    obEl.innerHTML = '<div style="color:var(--text-dim);font-size:11px;">No data</div>';
+  const m = d.market;
+
+  if (dir === 'NO_MARKET' || !m) {
+    panel.innerHTML = '<div style="color:var(--text-dim);font-size:11px;text-align:center;padding:20px 0;">No active market</div>';
+    return;
   }
+
+  const dirCls = dir === 'UP' ? 'up' : dir === 'DOWN' ? 'down' : 'neutral';
+  const upPct = Math.round((m.upPrice || 0) * 100);
+  const dnPct = Math.round((m.downPrice || 0) * 100);
+
+  // SVG confidence arc
+  const radius = 38;
+  const circ = Math.PI * radius;
+  const arcLen = (conf / 100) * circ;
+  const arcColor = dir === 'UP' ? '#00ff41' : dir === 'DOWN' ? '#ff3232' : '#ffaa00';
+  const arcGlow = dir === 'UP' ? 'rgba(0,255,65,0.4)' : dir === 'DOWN' ? 'rgba(255,50,50,0.4)' : 'rgba(255,170,0,0.3)';
+
+  let html = '';
+
+  // Market name
+  html += '<div style="font-size:9px;color:var(--text-dim);text-align:center;line-height:1.3;">' + m.question + '</div>';
+
+  // Confidence gauge
+  html += '<div class="conf-gauge">';
+  html += '<svg width="100" height="58" viewBox="0 0 100 58">';
+  html += '<path d="M 10 52 A 38 38 0 0 1 90 52" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="5" stroke-linecap="round"/>';
+  html += '<path d="M 10 52 A 38 38 0 0 1 90 52" fill="none" stroke="' + arcColor + '" stroke-width="5" stroke-linecap="round"';
+  html += ' stroke-dasharray="' + arcLen.toFixed(1) + ' ' + circ.toFixed(1) + '"';
+  html += ' style="filter:drop-shadow(0 0 4px ' + arcGlow + ');transition:stroke-dasharray .6s ease"/>';
+  html += '<text x="50" y="38" text-anchor="middle" fill="' + arcColor + '" font-size="10" font-weight="900" font-family="JetBrains Mono,monospace">' + dir + '</text>';
+  html += '<text x="50" y="50" text-anchor="middle" fill="rgba(255,255,255,0.4)" font-size="8" font-family="JetBrains Mono,monospace">' + conf + '% confidence</text>';
+  html += '</svg>';
+  html += '</div>';
+
+  // Sentiment bar
+  html += '<div class="ma-section">';
+  html += '<div class="sent-bar-wrap">';
+  html += '<span class="up">' + upPct + '%</span>';
+  html += '<div class="sent-bar">';
+  html += '<div class="sent-bar-up" style="width:' + upPct + '%"></div>';
+  html += '<div class="sent-bar-dn" style="width:' + dnPct + '%"></div>';
+  html += '</div>';
+  html += '<span class="down">' + dnPct + '%</span>';
+  html += '</div>';
+
+  // Midpoint + spread
+  const midStr = s.midpoint != null ? s.midpoint.toFixed(2) : '--';
+  const sprStr = s.spread != null ? s.spread.toFixed(3) : '--';
+  html += '<div class="sent-mid">Mid: ' + midStr + '  |  Spread: ' + sprStr + '</div>';
+  html += '</div>';
+
+  // Orderbook depth
+  html += '<div class="ma-section">';
+  html += '<div class="ma-section-label">Orderbook</div>';
+  if (ob && (ob.bestAsk || ob.bestBid)) {
+    const maxDepth = Math.max(ob.askDepth || 1, ob.bidDepth || 1);
+    const askW = Math.round(((ob.askDepth || 0) / maxDepth) * 100);
+    const bidW = Math.round(((ob.bidDepth || 0) / maxDepth) * 100);
+
+    if (ob.bestAsk) {
+      html += '<div class="depth-row">';
+      html += '<span class="depth-label down">ASK</span>';
+      html += '<span class="depth-price down">$' + ob.bestAsk.price + '</span>';
+      html += '<div class="depth-bar-wrap"><div class="depth-bar-fill" style="width:' + askW + '%;background:var(--red);"></div></div>';
+      html += '<span class="depth-size">' + parseFloat(ob.bestAsk.size).toFixed(0) + 'sh</span>';
+      html += '</div>';
+    }
+    if (ob.bestBid) {
+      html += '<div class="depth-row">';
+      html += '<span class="depth-label up">BID</span>';
+      html += '<span class="depth-price up">$' + ob.bestBid.price + '</span>';
+      html += '<div class="depth-bar-wrap"><div class="depth-bar-fill" style="width:' + bidW + '%;background:var(--green);"></div></div>';
+      html += '<span class="depth-size">' + parseFloat(ob.bestBid.size).toFixed(0) + 'sh</span>';
+      html += '</div>';
+    }
+    html += '<div style="font-size:9px;color:var(--text-dim);margin-top:2px;">' + (ob.askDepth||0) + ' asks / ' + (ob.bidDepth||0) + ' bids  |  Vol: $' + ((m.volume||0)/1000).toFixed(1) + 'K</div>';
+  } else {
+    html += '<div style="font-size:10px;color:var(--text-dim);">No orderbook data</div>';
+  }
+  html += '</div>';
+
+  // Factors
+  const factors = s.factors || {};
+  const fKeys = Object.keys(factors);
+  if (fKeys.length > 0) {
+    html += '<div class="ma-section">';
+    html += '<div class="ma-section-label">Factors</div>';
+    fKeys.forEach(function(k) {
+      const f = factors[k];
+      const isBear = f.bias === 'DOWN' || f.bias === 'SELL';
+      let valStr = '';
+      if (k === 'marketSkew') valStr = '<span class="' + (f.bias === 'UP' ? 'up' : f.bias === 'DOWN' ? 'down' : 'neutral') + '">' + f.pct + '% ' + f.bias + '</span>';
+      else if (k === 'btcTrend') valStr = '<span class="' + (f.bias === 'UP' ? 'up' : f.bias === 'DOWN' ? 'down' : '') + '">' + (f.value > 0 ? '+' : '') + f.value.toFixed(1) + '%</span>';
+      else if (k === 'volume') valStr = '$' + (f.value/1000).toFixed(1) + 'K';
+      else if (k === 'bookDepth') valStr = '<span class="' + (f.bias === 'BUY' ? 'up' : f.bias === 'SELL' ? 'down' : '') + '">' + f.bias + ' ' + (f.bidDepth||0) + '/' + (f.askDepth||0) + '</span>';
+
+      let dots = '';
+      for (let i = 0; i < 5; i++) {
+        dots += '<div class="factor-dot' + (i < (f.strength||0) ? ' active' + (isBear ? ' bearish' : '') : '') + '"></div>';
+      }
+
+      html += '<div class="factor-row">';
+      html += '<span class="factor-label">' + f.label + '</span>';
+      html += '<span class="factor-value">' + valStr + '</span>';
+      html += '<span class="factor-dots">' + dots + '</span>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
+  panel.innerHTML = html;
 }
 
 // ===== MARKETS TABLE =====
