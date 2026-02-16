@@ -6,19 +6,19 @@
       "use": "@vercel/node"
     },
     {
-      "src": "index.html",
+      "src": "public/index.html",
       "use": "@vercel/static"
     },
     {
-      "src": "markets.html",
+      "src": "public/markets.html",
       "use": "@vercel/static"
     }
   ],
   "routes": [
     { "src": "/api/(.*)", "dest": "/server.js" },
-    { "src": "/index.html", "dest": "/index.html" },
-    { "src": "/markets.html", "dest": "/markets.html" },
-    { "src": "/markets", "dest": "/markets.html" },
-    { "src": "/", "dest": "/index.html" }
+    { "src": "/index.html", "dest": "/public/index.html" },
+    { "src": "/markets.html", "dest": "/public/markets.html" },
+    { "src": "/markets", "dest": "/public/markets.html" },
+    { "src": "/", "dest": "/public/index.html" }
   ]
 }

@@ -26,7 +26,7 @@ try {
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname)));
+app.use(express.static(path.join(__dirname, "public")));
 
 const PORT = process.env.PORT || 3001;
 
@@ -471,8 +471,8 @@ app.get("/api/chart", async (req, res) => {
 });
 
 // ===== PAGES =====
-app.get("/", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
-app.get("/markets", (req, res) => res.sendFile(path.join(__dirname, "markets.html")));
+app.get("/", (req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
+app.get("/markets", (req, res) => res.sendFile(path.join(__dirname, "public", "markets.html")));
 
 // ===== START =====
 // Only listen when running directly (not on Vercel)

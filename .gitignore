@@ -3,6 +3,7 @@ node_modules/
 
 # Secrets - NEVER commit
 .env
+.env.vercel
 credentials.json
 derived-creds.json
 
@@ -10,15 +11,15 @@ derived-creds.json
 .vercel
 
 # Sensitive scripts
-deposit.js
-send-usdc.js
-test-trade.js
-test-addr.js
-check-balance.js
-check-base.js
-check-poly.js
-trade-proxy.js
-approve-and-trade.js
+scripts/deposit.js
+scripts/send-usdc.js
+scripts/test-trade.js
+scripts/test-addr.js
+scripts/check-balance.js
+scripts/check-base.js
+scripts/check-poly.js
+scripts/trade-proxy.js
+scripts/approve-and-trade.js
 
 # Local dev
 memory/
