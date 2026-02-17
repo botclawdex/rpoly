@@ -26,6 +26,14 @@ try {
 
 // builder-relayer/viem kept as dependencies for future gasless redeem (not used yet)
 
+let brain;
+try {
+  brain = require("./brain/strategy.js");
+  console.log("brain loaded OK — stage:", brain.IDENTITY.getCurrentStage(brain.loadMemory()).name);
+} catch (e) {
+  console.warn("brain not available:", e.message);
+}
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -767,6 +775,79 @@ app.post("/api/redeem", requireAuth, async (req, res) => {
   });
 });
 
+// ===== BRAIN (Trading Intelligence) =====
+
+// GET /api/brain/status — Full brain introspection
+app.get("/api/brain/status", (req, res) => {
+  if (!brain) return res.status(500).json({ error: "Brain not loaded" });
+  res.json(brain.getStatus());
+});
+
+// POST /api/brain/analyze — Run analysis on current market data
+app.post("/api/brain/analyze", requireAuth, async (req, res) => {
+  if (!brain) return res.status(500).json({ error: "Brain not loaded" });
+
+  try {
+    // Fetch all data sources the brain needs
+    const [dashRes, oddsRes, whalesRes, globalRes, patternsRes] = await Promise.allSettled([
+      axios.get(`http://localhost:${PORT}/api/dashboard`),
+      axios.get(`http://localhost:${PORT}/api/learn/odds-history`),
+      axios.get(`http://localhost:${PORT}/api/learn/whales`),
+      axios.get(`http://localhost:${PORT}/api/learn/global-trades`),
+      axios.get(`http://localhost:${PORT}/api/learn/patterns`),
+    ]);
+
+    const dash = dashRes.status === "fulfilled" ? dashRes.value.data : {};
+    const market = dash.market || {};
+    const btcPrice = dash.btc?.price || 0;
+    const bankroll = dash.balances?.proxy?.usdc || 0;
+
+    // Calculate time left
+    const endDate = market.endDate ? new Date(market.endDate).getTime() : 0;
+    const timeLeftSec = endDate ? Math.max(0, Math.floor((endDate - Date.now()) / 1000)) : 0;
+
+    const decision = brain.analyze({
+      market,
+      btcPrice,
+      bankroll,
+      timeLeftSec,
+      oddsHistory: oddsRes.status === "fulfilled" ? oddsRes.value.data : [],
+      whaleData: whalesRes.status === "fulfilled" ? whalesRes.value.data : [],
+      globalTrades: globalRes.status === "fulfilled" ? globalRes.value.data : [],
+      patterns: patternsRes.status === "fulfilled" ? patternsRes.value.data : null,
+    });
+
+    res.json(decision);
+  } catch (e) {
+    console.log("[brain] analyze error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/brain/record — Record a trade outcome (called after trade completes)
+app.post("/api/brain/record", requireAuth, (req, res) => {
+  if (!brain) return res.status(500).json({ error: "Brain not loaded" });
+
+  const { side, amount, price, won, pnl, confidence, strategies, regime } = req.body;
+  if (typeof won !== "boolean" || typeof pnl !== "number") {
+    return res.status(400).json({ error: "Required: won (bool), pnl (number)" });
+  }
+
+  const result = brain.recordTrade({
+    action: "BUY",
+    side: side || "YES",
+    amount: amount || 1,
+    price: price || 0.5,
+    won,
+    pnl,
+    confidence: confidence || 0.5,
+    strategies: strategies || [],
+    regime: regime || "unknown",
+  });
+
+  res.json({ success: true, ...result });
+});
+
 // BTC chart - supports ?interval=1s|1m|5m|15m
 app.get("/api/chart", async (req, res) => {
   const INTERVALS = {
@@ -1060,6 +1141,12 @@ if (!process.env.VERCEL) {
     console.log("  Trading: " + (IS_READONLY ? "DISABLED (readonly)" : HAS_TRADING ? "LIVE (signatureType=2 GNOSIS_SAFE)" : "NO KEYS"));
     console.log("  Auth:    " + (IS_READONLY ? "NOT NEEDED (readonly)" : HAS_AUTH ? "ENABLED" : "OPEN"));
     console.log("  Redeem:  MANUAL (sell 30s before close, owner redeems via polymarket.com)");
+    if (brain) {
+      const status = brain.getStatus();
+      console.log("  Brain:   " + status.identity.stage + " (" + status.memory.totalTrades + " trades, WR " + status.memory.winRate + ", P/L " + status.memory.totalPnl + ")");
+    } else {
+      console.log("  Brain:   NOT LOADED");
+    }
     console.log("");
 
     // Start data collector in live mode
