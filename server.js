@@ -24,6 +24,8 @@ try {
   console.warn("clob-client not available:", e.message);
 }
 
+// builder-relayer/viem kept as dependencies for future gasless redeem (not used yet)
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -46,6 +48,7 @@ const EOA_CREDS = {
   passphrase: process.env.POLY_API_PASSPHRASE || "",
 };
 const AUTH_TOKEN = process.env.RPOLY_AUTH_TOKEN || "";
+// Builder API creds kept in .env for future gasless redeem (not used in runtime yet)
 
 const RPOLY_MODE = process.env.RPOLY_MODE || "live"; // "live" or "readonly"
 const IS_READONLY = RPOLY_MODE === "readonly";
@@ -720,6 +723,50 @@ app.get("/api/trade-log", (req, res) => {
   res.json({ trades: tradeLog.slice(-limit).reverse() });
 });
 
+// ===== REDEEM (manual for now, sell-before-close strategy) =====
+// Contract addresses kept for future auto-redeem implementation:
+// CTF: 0x4D97DCd97eC945f40cF65F87097ACe5EA0476045
+// NegRiskAdapter: 0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296
+
+app.get("/api/redeemable", async (req, res) => {
+  try {
+    const r = await axios.get("https://data-api.polymarket.com/positions", {
+      params: { user: PROXY_ADDRESS, redeemable: true, sizeThreshold: 0.01, limit: 100 },
+      timeout: 10000,
+    });
+    const positions = r.data || [];
+    const byCondition = {};
+    positions.forEach(p => {
+      const cid = p.conditionId;
+      if (!byCondition[cid]) {
+        byCondition[cid] = { conditionId: cid, title: p.title || "Unknown", negRisk: !!p.negativeRisk, outcomes: [], totalValue: 0 };
+      }
+      const val = Math.max(0, parseFloat(p.currentValue) || 0);
+      const size = Math.max(0, parseFloat(p.size) || 0);
+      byCondition[cid].outcomes.push({ outcome: p.outcome, index: p.outcomeIndex, size, value: val });
+      byCondition[cid].totalValue += val;
+    });
+    const grouped = Object.values(byCondition);
+    const totalValue = grouped.reduce((s, g) => s + g.totalValue, 0);
+    res.json({ count: grouped.length, totalValue: +totalValue.toFixed(4), positions: grouped });
+  } catch (e) {
+    console.log("[redeemable] error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/redeem — STUB (manual redeem for now)
+// Bot strategy: SELL 30s before market close to avoid needing redeem.
+// If positions go to resolution, owner redeems manually via polymarket.com.
+// TODO: Implement automated gasless redeem via Builder Relayer when stable.
+app.post("/api/redeem", requireAuth, async (req, res) => {
+  res.json({
+    success: false,
+    message: "Auto-redeem not yet implemented. Redeem manually at polymarket.com. Bot should SELL 30s before market close instead.",
+    redeemableUrl: "/api/redeemable",
+  });
+});
+
 // BTC chart - supports ?interval=1s|1m|5m|15m
 app.get("/api/chart", async (req, res) => {
   const INTERVALS = {
@@ -1012,6 +1059,7 @@ if (!process.env.VERCEL) {
     console.log("  Mode:    " + RPOLY_MODE.toUpperCase());
     console.log("  Trading: " + (IS_READONLY ? "DISABLED (readonly)" : HAS_TRADING ? "LIVE (signatureType=2 GNOSIS_SAFE)" : "NO KEYS"));
     console.log("  Auth:    " + (IS_READONLY ? "NOT NEEDED (readonly)" : HAS_AUTH ? "ENABLED" : "OPEN"));
+    console.log("  Redeem:  MANUAL (sell 30s before close, owner redeems via polymarket.com)");
     console.log("");
 
     // Start data collector in live mode
