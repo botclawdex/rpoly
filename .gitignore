@@ -24,3 +24,7 @@ scripts/approve-and-trade.js
 # Local dev
 memory/
 brain/
+
+# Collected data (local only)
+trades/*.json
+!trades/README.md

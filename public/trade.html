@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>rPoly | Trading Terminal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --card: #0d1117;
+      --card-hover: #161b22;
+      --green: #00ff41;
+      --green-dim: #00cc33;
+      --green-glow: rgba(0,255,65,0.12);
+      --red: #ff3333;
+      --red-glow: rgba(255,51,51,0.12);
+      --yellow: #ffaa00;
+      --text: #c9d1d9;
+      --text-dim: #8b949e;
+      --border: #1a2a1a;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family:'JetBrains Mono',monospace;
+      background:var(--bg);
+      color:var(--text);
+      min-height:100vh;
+      line-height:1.5;
+      overflow-y:scroll;
+    }
+    body::before {
+      content:'';position:fixed;top:0;left:0;width:100%;height:100%;
+      background:repeating-linear-gradient(0deg,rgba(0,0,0,0.1),rgba(0,0,0,0.1) 1px,transparent 1px,transparent 2px);
+      pointer-events:none;z-index:1000;
+    }
+    .wrap { width:100%; padding:12px 24px; }
+    .nav-tab {
+      display:inline-block; padding:5px 12px; font-size:10px; font-weight:600;
+      letter-spacing:1px; text-transform:uppercase; text-decoration:none;
+      color:var(--text-dim); border:1px solid transparent; transition:all .2s;
+    }
+    .nav-tab:hover { color:var(--green); background:rgba(0,255,65,0.05); border-color:rgba(0,255,65,0.15); }
+    .nav-tab-active { color:var(--green); border-color:rgba(0,255,65,0.25); background:rgba(0,255,65,0.06); }
+    header {
+      display:grid; grid-template-columns:1fr auto 1fr; align-items:center;
+      padding:10px 24px; border-bottom:1px solid var(--border); margin-bottom:0;
+    }
+    header > div:last-child { justify-self:end; }
+    .header-clock {
+      display:flex; align-items:center; gap:6px;
+      padding:4px 14px; background:rgba(0,255,65,0.04);
+      border:1px solid rgba(0,255,65,0.15); border-radius:3px;
+    }
+    .clock-time { font-size:14px; font-weight:700; color:var(--green); letter-spacing:1.5px; text-shadow:0 0 8px rgba(0,255,65,0.5); }
+    .clock-label { font-size:9px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px; opacity:0.7; }
+    .clock-sep { font-size:12px; color:rgba(0,255,65,0.3); margin:0 2px; }
+    .logo { font-size:22px; font-weight:700; color:var(--green); }
+    .logo span { color:var(--text); }
+    .live-dot { width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:4px; }
+    .live-dot.on { background:var(--green); animation:pulse 2s infinite; }
+    .live-dot.off { background:var(--red); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    .grid { display:grid; gap:12px; margin-bottom:12px; }
+    .card {
+      background:var(--card); border:1px solid var(--border); padding:14px; transition:border-color .2s;
+    }
+    .card:hover { border-color:#2a4a2a; }
+    .card-label {
+      font-size:10px; color:var(--text-dim); text-transform:uppercase;
+      letter-spacing:1px; margin-bottom:6px;
+    }
+    .val-lg { font-size:28px; font-weight:700; color:var(--green); }
+    .sub { font-size:10px; color:var(--text-dim); margin-top:2px; }
+
+    /* Countdown */
+    .countdown-bar { height:4px; background:var(--border); margin:8px 0; position:relative; }
+    .countdown-fill { height:100%; background:var(--green); transition:width 1s linear; }
+    .countdown-fill.urgent { background:var(--red); animation:countBlink 1s infinite; }
+    @keyframes countBlink { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+    /* Trade buttons */
+    .btn {
+      padding:10px 18px; font-family:inherit; font-size:12px; font-weight:700;
+      letter-spacing:1px; text-transform:uppercase; border:1px solid;
+      cursor:pointer; transition:all .2s; background:transparent;
+    }
+    .btn-buy { color:var(--green); border-color:var(--green); }
+    .btn-buy:hover { background:rgba(0,255,65,0.15); box-shadow:0 0 12px rgba(0,255,65,0.2); }
+    .btn-sell { color:var(--red); border-color:var(--red); }
+    .btn-sell:hover { background:rgba(255,51,51,0.15); box-shadow:0 0 12px rgba(255,51,51,0.2); }
+    .btn-cancel { color:var(--yellow); border-color:var(--yellow); font-size:10px; padding:4px 10px; }
+    .btn-cancel:hover { background:rgba(255,170,0,0.15); }
+    .btn:disabled { opacity:0.3; cursor:not-allowed; }
+
+    .input-field {
+      background:var(--bg); border:1px solid var(--border); color:var(--text);
+      font-family:inherit; font-size:13px; padding:8px 10px; width:100%;
+      transition:border-color .2s;
+    }
+    .input-field:focus { outline:none; border-color:var(--green); }
+
+    /* Ticker tape */
+    .ticker-tape {
+      background:rgba(0,255,65,0.04); border:1px solid var(--border);
+      padding:10px 14px; margin-bottom:12px; min-height:42px;
+      display:flex; align-items:center; gap:8px; overflow:hidden;
+    }
+    .ticker-icon { font-size:14px; flex-shrink:0; }
+    .ticker-text { font-size:11px; color:var(--green); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .ticker-time { font-size:9px; color:var(--text-dim); flex-shrink:0; margin-left:auto; }
+
+    /* Trade log */
+    .log-row {
+      display:flex; justify-content:space-between; align-items:center;
+      padding:4px 0; border-bottom:1px solid var(--border); font-size:10px;
+    }
+    .log-row:last-child { border-bottom:none; }
+
+    /* Spectator badge */
+    .spectator-badge {
+      display:inline-flex; align-items:center; gap:4px;
+      font-size:9px; color:var(--yellow); border:1px solid rgba(255,170,0,0.3);
+      padding:3px 10px; letter-spacing:1px; text-transform:uppercase;
+    }
+
+    /* Auth controls - hidden for spectators */
+    .auth-only { display:none; }
+    body.authenticated .auth-only { display:block; }
+    body.authenticated .spectator-only { display:none; }
+
+    @media (max-width:900px) {
+      .grid-main { grid-template-columns:1fr !important; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div style="display:flex;align-items:center;gap:4px;">
+      <div class="logo">r<span>Poly</span>_</div>
+      <nav style="display:flex;gap:2px;margin-left:12px;">
+        <a href="/" class="nav-tab">Dashboard</a>
+        <a href="/trade" class="nav-tab nav-tab-active">Trade</a>
+        <a href="/learn" class="nav-tab">Data Lab</a>
+        <a href="/hub" class="nav-tab">Hub</a>
+      </nav>
+    </div>
+    <div style="text-align:center;">
+      <div class="header-clock">
+        <span class="clock-time" id="utc-time">--:--:--</span>
+        <span class="clock-label">UTC</span>
+        <span class="clock-sep">|</span>
+        <span class="clock-time" id="pl-time">--:--:--</span>
+        <span class="clock-label">PL</span>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span class="spectator-only spectator-badge">&#x1F441; Spectator</span>
+      <span class="auth-only" style="font-size:9px;color:var(--green);letter-spacing:1px;">&#x2713; LIVE</span>
+    </div>
+  </header>
+
+  <!-- Bot Message Ticker -->
+  <div class="wrap" style="padding-bottom:0;">
+    <div class="ticker-tape" id="ticker-tape">
+      <span class="ticker-icon">&#x1F916;</span>
+      <span class="ticker-text" id="ticker-text">Connecting to ClawBot...</span>
+      <span class="ticker-time" id="ticker-time"></span>
+    </div>
+  </div>
+
+  <div class="wrap" style="padding-top:0;">
+    <!-- Main grid: Market + Actions | Sidebar -->
+    <div class="grid grid-main" style="grid-template-columns:1fr 340px;">
+
+      <!-- LEFT COLUMN -->
+      <div>
+        <!-- Active Market Card -->
+        <div class="card" style="margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+            <div>
+              <div class="card-label">Active Market</div>
+              <div id="market-question" style="font-size:13px;font-weight:700;color:var(--text);">Loading...</div>
+            </div>
+            <div id="market-countdown" style="text-align:right;">
+              <div style="font-size:9px;color:var(--text-dim);letter-spacing:1px;">CLOSES IN</div>
+              <div id="countdown-value" style="font-size:22px;font-weight:700;color:var(--green);">--:--</div>
+            </div>
+          </div>
+          <div class="countdown-bar"><div class="countdown-fill" id="countdown-bar" style="width:100%;"></div></div>
+          <!-- UP / DOWN prices -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);">
+            <div style="background:var(--card);padding:12px;text-align:center;">
+              <div style="font-size:9px;color:var(--text-dim);letter-spacing:1px;">&#x25B2; UP</div>
+              <div id="up-price" style="font-size:22px;font-weight:700;color:var(--green);margin-top:2px;">--</div>
+            </div>
+            <div style="background:var(--card);padding:12px;text-align:center;">
+              <div style="font-size:9px;color:var(--text-dim);letter-spacing:1px;">&#x25BC; DOWN</div>
+              <div id="down-price" style="font-size:22px;font-weight:700;color:var(--red);margin-top:2px;">--</div>
+            </div>
+          </div>
+          <!-- Price to Beat vs Current -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);margin-top:1px;">
+            <div style="background:var(--card);padding:8px;text-align:center;">
+              <div style="font-size:8px;color:var(--yellow);letter-spacing:1px;">PRICE TO BEAT</div>
+              <div id="price-to-beat" style="font-size:16px;font-weight:700;color:var(--yellow);margin-top:2px;">--</div>
+            </div>
+            <div style="background:var(--card);padding:8px;text-align:center;">
+              <div style="font-size:8px;color:var(--text-dim);letter-spacing:1px;">BTC NOW</div>
+              <div id="btc-now" style="font-size:16px;font-weight:700;color:var(--green);margin-top:2px;">--</div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:9px;color:var(--text-dim);">
+            <span>Vol: <span id="market-vol">--</span></span>
+            <span>Liq: <span id="market-liq">--</span></span>
+            <span id="beat-diff" style="font-weight:700;">--</span>
+          </div>
+        </div>
+
+        <!-- Trade Controls (auth only) -->
+        <div class="card auth-only" style="margin-bottom:12px;">
+          <div class="card-label">Trade Panel</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+            <div>
+              <label style="font-size:9px;color:var(--text-dim);letter-spacing:1px;">SIDE</label>
+              <div style="display:flex;gap:4px;margin-top:4px;">
+                <button class="btn btn-buy" id="side-up" onclick="setSide('UP')" style="flex:1;">&#x25B2; UP</button>
+                <button class="btn btn-sell" id="side-down" onclick="setSide('DOWN')" style="flex:1;">&#x25BC; DOWN</button>
+              </div>
+            </div>
+            <div>
+              <label style="font-size:9px;color:var(--text-dim);letter-spacing:1px;">SIZE (shares)</label>
+              <input type="number" class="input-field" id="trade-size" value="10" min="1" style="margin-top:4px;">
+            </div>
+          </div>
+          <div style="margin-bottom:10px;">
+            <label style="font-size:9px;color:var(--text-dim);letter-spacing:1px;">PRICE (optional, empty = market)</label>
+            <input type="number" class="input-field" id="trade-price" placeholder="auto" step="0.01" min="0.01" max="0.99" style="margin-top:4px;">
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-buy" style="flex:1;" onclick="executeTrade('buy')">&#x26A1; BUY</button>
+            <button class="btn btn-sell" style="flex:1;" onclick="executeTrade('sell')">&#x2193; SELL</button>
+          </div>
+          <div id="trade-result" style="margin-top:8px;font-size:10px;min-height:18px;"></div>
+
+          <!-- Take Profit -->
+          <div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+              <span style="font-size:9px;color:var(--text-dim);letter-spacing:1px;">TAKE PROFIT / STOP LOSS</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:6px;align-items:end;">
+              <div>
+                <label style="font-size:8px;color:var(--text-dim);">SELL PRICE</label>
+                <input type="number" class="input-field" id="tp-price" placeholder="0.70" step="0.01" style="margin-top:2px;font-size:11px;padding:6px;">
+              </div>
+              <div>
+                <label style="font-size:8px;color:var(--text-dim);">SHARES</label>
+                <input type="number" class="input-field" id="tp-size" placeholder="10" style="margin-top:2px;font-size:11px;padding:6px;">
+              </div>
+              <button class="btn btn-sell" style="font-size:9px;padding:6px 10px;" onclick="setTakeProfit()">SET</button>
+            </div>
+            <div id="tp-result" style="margin-top:4px;font-size:9px;min-height:14px;"></div>
+          </div>
+        </div>
+
+        <!-- Spectator view -->
+        <div class="card spectator-only" style="margin-bottom:12px;">
+          <div style="text-align:center;padding:16px 0;">
+            <div style="font-size:12px;color:var(--text-dim);margin-bottom:4px;">&#x1F441; Spectator Mode</div>
+            <div style="font-size:10px;color:var(--text-dim);">Watch ClawBot trade live. Trading controls are owner-only.</div>
+          </div>
+        </div>
+
+        <!-- Trade Log -->
+        <div class="card">
+          <div class="card-label">Trade Log</div>
+          <div id="trade-log" style="max-height:240px;overflow-y:auto;">
+            <div style="color:var(--text-dim);font-size:10px;text-align:center;padding:10px 0;">Loading...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT COLUMN (Sidebar) -->
+      <div>
+        <!-- Positions -->
+        <div class="card" style="margin-bottom:12px;">
+          <div class="card-label">Active Positions</div>
+          <div id="positions-list" style="font-size:10px;">
+            <div style="color:var(--text-dim);text-align:center;padding:8px 0;">Loading...</div>
+          </div>
+        </div>
+
+        <!-- Open Orders -->
+        <div class="card" style="margin-bottom:12px;">
+          <div class="card-label">Open Orders</div>
+          <div id="orders-list" style="font-size:10px;">
+            <div style="color:var(--text-dim);text-align:center;padding:8px 0;">Loading...</div>
+          </div>
+          <div class="auth-only" style="margin-top:8px;">
+            <button class="btn btn-cancel" style="width:100%;" onclick="cancelAllOrders()">Cancel All</button>
+          </div>
+        </div>
+
+        <!-- Portfolio summary -->
+        <div class="card" style="margin-bottom:12px;">
+          <div class="card-label">Portfolio</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:9px;color:var(--text-dim);">CASH</span>
+            <span id="portfolio-cash" style="font-size:18px;font-weight:700;color:var(--green);">--</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:4px;">
+            <span style="font-size:9px;color:var(--text-dim);">POSITIONS</span>
+            <span id="portfolio-positions" style="font-size:13px;font-weight:700;color:var(--green);">--</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:4px;">
+            <span style="font-size:9px;color:var(--text-dim);">P/L TODAY</span>
+            <span id="portfolio-pnl" style="font-size:13px;font-weight:700;">--</span>
+          </div>
+        </div>
+
+        <!-- Bot Messages History -->
+        <div class="card">
+          <div class="card-label">&#x1F916; ClawBot Feed</div>
+          <div id="bot-messages" style="max-height:200px;overflow-y:auto;font-size:10px;">
+            <div style="color:var(--text-dim);text-align:center;padding:8px 0;">Loading...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const API = '';
+let selectedSide = 'UP';
+let authToken = localStorage.getItem('rpoly_token') || '';
+let marketData = null;
+let countdownTimer = null;
+
+// Auth check
+async function checkAuth() {
+  if (!authToken) return false;
+  try {
+    const res = await fetch(API + '/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: authToken })
+    });
+    const d = await res.json();
+    return d.ok === true;
+  } catch { return false; }
+}
+
+async function initAuth() {
+  const hash = window.location.hash;
+  if (hash.startsWith('#token=')) {
+    authToken = hash.slice(7);
+    localStorage.setItem('rpoly_token', authToken);
+    window.location.hash = '';
+  }
+  if (authToken && await checkAuth()) {
+    document.body.classList.add('authenticated');
+  }
+}
+
+function authHeaders() {
+  const h = { 'Content-Type': 'application/json' };
+  if (authToken) h['Authorization'] = 'Bearer ' + authToken;
+  return h;
+}
+
+// Clock
+function updateClock() {
+  const now = new Date();
+  const utc = now.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone:'UTC' });
+  const pl = now.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone:'Europe/Warsaw' });
+  document.getElementById('utc-time').textContent = utc;
+  document.getElementById('pl-time').textContent = pl;
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// Side selector
+function setSide(s) {
+  selectedSide = s;
+  document.getElementById('side-up').style.opacity = s === 'UP' ? '1' : '0.3';
+  document.getElementById('side-down').style.opacity = s === 'DOWN' ? '1' : '0.3';
+}
+setTimeout(() => setSide('UP'), 100);
+
+// Load market data from dashboard (has priceToBeat + btc)
+async function loadMarket() {
+  try {
+    const res = await fetch(API + '/api/dashboard');
+    const dash = await res.json();
+    const d = dash.market;
+    const btc = dash.btc;
+    marketData = d;
+
+    if (d?.question) {
+      const q = d.question.replace('Bitcoin Up or Down - ', 'BTC ');
+      document.getElementById('market-question').textContent = q;
+      document.getElementById('up-price').textContent = (d.upPrice * 100).toFixed(0) + '¢';
+      document.getElementById('down-price').textContent = (d.downPrice * 100).toFixed(0) + '¢';
+      document.getElementById('market-vol').textContent = '$' + (d.volume || 0).toFixed(1) + 'K';
+      document.getElementById('market-liq').textContent = '$' + (d.liquidity || 0).toFixed(1) + 'K';
+      startCountdown(d.endDate);
+
+      // Price to Beat
+      const ptb = d.priceToBeat;
+      const btcPrice = btc?.price || 0;
+      const ptbEl = document.getElementById('price-to-beat');
+      const btcEl = document.getElementById('btc-now');
+      const diffEl = document.getElementById('beat-diff');
+
+      if (ptb) {
+        ptbEl.textContent = '$' + ptb.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      } else {
+        ptbEl.textContent = '--';
+      }
+
+      if (btcPrice) {
+        btcEl.textContent = '$' + btcPrice.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+
+      if (ptb && btcPrice) {
+        const diff = btcPrice - ptb;
+        const pct = ((diff / ptb) * 100).toFixed(3);
+        const isUp = diff >= 0;
+        diffEl.style.color = isUp ? 'var(--green)' : 'var(--red)';
+        diffEl.textContent = (isUp ? '▲ +' : '▼ ') + '$' + Math.abs(diff).toFixed(2) + ' (' + (isUp ? '+' : '') + pct + '%)';
+        btcEl.style.color = isUp ? 'var(--green)' : 'var(--red)';
+      }
+    } else {
+      document.getElementById('market-question').textContent = 'No active market';
+      document.getElementById('countdown-value').textContent = '--:--';
+    }
+  } catch (e) {
+    document.getElementById('market-question').textContent = 'Error loading market';
+  }
+}
+
+function startCountdown(endDate) {
+  if (countdownTimer) clearInterval(countdownTimer);
+  const end = new Date(endDate).getTime();
+  const total = 5 * 60 * 1000;
+  function tick() {
+    const now = Date.now();
+    const left = Math.max(0, end - now);
+    const min = Math.floor(left / 60000);
+    const sec = Math.floor((left % 60000) / 1000);
+    const cv = document.getElementById('countdown-value');
+    const bar = document.getElementById('countdown-bar');
+    cv.textContent = min + ':' + String(sec).padStart(2, '0');
+    const pct = Math.max(0, (left / total) * 100);
+    bar.style.width = pct + '%';
+    if (left < 30000) {
+      cv.style.color = 'var(--red)';
+      bar.classList.add('urgent');
+    } else {
+      cv.style.color = 'var(--green)';
+      bar.classList.remove('urgent');
+    }
+    if (left <= 0) {
+      clearInterval(countdownTimer);
+      setTimeout(loadMarket, 3000);
+    }
+  }
+  tick();
+  countdownTimer = setInterval(tick, 1000);
+}
+
+// Trade execution
+async function executeTrade(action) {
+  const size = document.getElementById('trade-size').value;
+  const price = document.getElementById('trade-price').value;
+  const resultEl = document.getElementById('trade-result');
+  resultEl.innerHTML = '<span style="color:var(--yellow);">Executing...</span>';
+
+  const endpoint = action === 'sell' ? '/api/sell' : '/api/trade';
+  try {
+    const res = await fetch(API + endpoint, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ side: selectedSide, size, price: price || undefined })
+    });
+    const d = await res.json();
+    if (d.success) {
+      resultEl.innerHTML = '<span style="color:var(--green);">&#x2713; ' + action.toUpperCase() + ' ' + selectedSide + ' x' + d.size + ' @ $' + d.price + '</span>';
+      loadAll();
+    } else {
+      resultEl.innerHTML = '<span style="color:var(--red);">&#x2717; ' + (d.error || 'Failed') + '</span>';
+    }
+  } catch (e) {
+    resultEl.innerHTML = '<span style="color:var(--red);">&#x2717; ' + e.message + '</span>';
+  }
+}
+
+// Take profit
+async function setTakeProfit() {
+  const price = document.getElementById('tp-price').value;
+  const size = document.getElementById('tp-size').value;
+  const resultEl = document.getElementById('tp-result');
+  if (!price || !size) { resultEl.innerHTML = '<span style="color:var(--red);">Fill price & size</span>'; return; }
+  resultEl.innerHTML = '<span style="color:var(--yellow);">Setting...</span>';
+  try {
+    const res = await fetch(API + '/api/sell-limit', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ side: selectedSide, size, price, expireSeconds: 300 })
+    });
+    const d = await res.json();
+    if (d.success) {
+      resultEl.innerHTML = '<span style="color:var(--green);">&#x2713; Limit sell set @ $' + price + '</span>';
+      loadOrders();
+    } else {
+      resultEl.innerHTML = '<span style="color:var(--red);">&#x2717; ' + (d.error || 'Failed') + '</span>';
+    }
+  } catch (e) {
+    resultEl.innerHTML = '<span style="color:var(--red);">&#x2717; ' + e.message + '</span>';
+  }
+}
+
+// Cancel all
+async function cancelAllOrders() {
+  try {
+    await fetch(API + '/api/cancel-all', { method: 'POST', headers: authHeaders() });
+    loadOrders();
+  } catch (e) {}
+}
+
+// Cancel single
+async function cancelOrder(id) {
+  try {
+    await fetch(API + '/api/cancel-order/' + id, { method: 'POST', headers: authHeaders() });
+    loadOrders();
+  } catch (e) {}
+}
+
+// Load open orders
+async function loadOrders() {
+  try {
+    const res = await fetch(API + '/api/open-orders');
+    const d = await res.json();
+    const el = document.getElementById('orders-list');
+    if (!d.orders?.length) {
+      el.innerHTML = '<div style="color:var(--text-dim);text-align:center;padding:6px 0;">No open orders</div>';
+      return;
+    }
+    el.innerHTML = d.orders.map(o => {
+      const color = o.side === 'BUY' ? 'var(--green)' : 'var(--red)';
+      return '<div class="log-row">' +
+        '<div><span style="color:' + color + ';font-weight:700;">' + o.side + '</span> x' + o.size + ' @ $' + o.price + '</div>' +
+        '<div style="display:flex;align-items:center;gap:4px;">' +
+          '<span style="color:var(--text-dim);">' + (o.status || '') + '</span>' +
+          '<button class="btn btn-cancel auth-only" onclick="cancelOrder(\'' + o.id + '\')" style="font-size:8px;padding:2px 6px;">&#x2717;</button>' +
+        '</div></div>';
+    }).join('');
+  } catch (e) {
+    document.getElementById('orders-list').innerHTML = '<div style="color:var(--text-dim);font-size:10px;">Error loading</div>';
+  }
+}
+
+// Load positions
+async function loadPositions() {
+  try {
+    const res = await fetch(API + '/api/dashboard');
+    const d = await res.json();
+    const el = document.getElementById('positions-list');
+
+    // Portfolio
+    const cash = d.balances?.totalUsdc || 0;
+    document.getElementById('portfolio-cash').textContent = '$' + cash.toFixed(2);
+    document.getElementById('portfolio-positions').textContent = '$' + (d.positionsValue || 0).toFixed(2);
+    const pnl = (d.realizedPnl || 0) + (d.totalPnl || 0);
+    const pnlEl = document.getElementById('portfolio-pnl');
+    pnlEl.textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
+    pnlEl.style.color = pnl >= 0 ? 'var(--green)' : 'var(--red)';
+
+    // Positions
+    if (!d.positions?.length) {
+      el.innerHTML = '<div style="color:var(--text-dim);text-align:center;padding:6px 0;">No open positions</div>';
+      return;
+    }
+    el.innerHTML = d.positions.map(p => {
+      const pnlColor = p.cashPnl >= 0 ? 'var(--green)' : 'var(--red)';
+      const title = (p.title || '').replace('Bitcoin Up or Down - ', 'BTC ').slice(0, 28);
+      return '<div style="padding:6px 0;border-bottom:1px solid var(--border);">' +
+        '<div style="display:flex;justify-content:space-between;">' +
+          '<span style="font-weight:700;color:' + (p.outcome === 'Up' ? 'var(--green)' : 'var(--red)') + ';">' + p.outcome + '</span>' +
+          '<span style="color:' + pnlColor + ';">' + (p.cashPnl >= 0 ? '+' : '') + '$' + p.cashPnl.toFixed(2) + '</span>' +
+        '</div>' +
+        '<div style="color:var(--text-dim);font-size:9px;">' + title + '</div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:9px;margin-top:2px;">' +
+          '<span>x' + p.size.toFixed(1) + ' @ $' + p.avgPrice.toFixed(2) + '</span>' +
+          '<span>now: $' + p.curPrice.toFixed(2) + '</span>' +
+        '</div>' +
+        '<div class="auth-only" style="margin-top:4px;">' +
+          '<button class="btn btn-sell" style="font-size:8px;padding:3px 8px;width:100%;" ' +
+            'onclick="quickSell(\'' + p.outcome + '\',' + Math.floor(p.size) + ')">Sell Now</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  } catch (e) {
+    document.getElementById('positions-list').innerHTML = '<div style="color:var(--text-dim);">Error</div>';
+  }
+}
+
+function quickSell(outcome, size) {
+  const side = outcome === 'Up' ? 'UP' : 'DOWN';
+  document.getElementById('trade-size').value = size;
+  setSide(side);
+  executeTrade('sell');
+}
+
+// Trade log
+async function loadTradeLog() {
+  try {
+    const [logRes, profileRes] = await Promise.all([
+      fetch(API + '/api/trade-log').then(r => r.json()).catch(() => ({ trades: [] })),
+      fetch(API + '/api/profile').then(r => r.json()).catch(() => ({ activity: [] }))
+    ]);
+    const dashRes = profileRes;
+
+    const botTrades = (logRes.trades || []).map(t => ({
+      ts: t.ts,
+      action: t.action,
+      side: t.side,
+      size: t.size,
+      price: t.price,
+      market: t.market,
+      result: t.result,
+      source: 'bot'
+    }));
+
+    const activityTrades = (dashRes.activity || [])
+      .filter(a => a.type === 'TRADE' || a.type === 'REDEEM')
+      .map(a => ({
+        ts: a.timestamp * 1000,
+        action: a.type === 'REDEEM' ? 'REDEEM' : a.side,
+        side: a.outcome || a.side,
+        size: a.size || a.usdcSize || 0,
+        price: a.price || 0,
+        market: a.title || '',
+        result: 'OK',
+        source: 'chain'
+      }));
+
+    const seen = new Set(botTrades.map(t => t.ts));
+    const merged = [...botTrades];
+    for (const a of activityTrades) {
+      if (!seen.has(a.ts)) merged.push(a);
+    }
+    merged.sort((a, b) => b.ts - a.ts);
+
+    const el = document.getElementById('trade-log');
+    if (!merged.length) {
+      el.innerHTML = '<div style="color:var(--text-dim);text-align:center;padding:8px 0;">No trades yet</div>';
+      return;
+    }
+    el.innerHTML = merged.slice(0, 30).map(t => {
+      const time = new Date(t.ts).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+      const date = new Date(t.ts).toLocaleDateString('en-GB', { day:'2-digit', month:'2-digit' });
+      const isBuy = t.action === 'BUY';
+      const isRedeem = t.action === 'REDEEM';
+      const color = isRedeem ? 'var(--yellow)' : isBuy ? 'var(--green)' : 'var(--red)';
+      const icon = isRedeem ? '&#x2713;' : isBuy ? '&#x25B2;' : '&#x25BC;';
+      const label = isRedeem ? 'REDEEM' : t.action + ' ' + (t.side || '');
+      const market = (t.market || '').replace(/Bitcoin Up or Down - /g, 'BTC ').slice(0, 25);
+      const detail = isRedeem ? '' : 'x' + (typeof t.size === 'number' ? t.size.toFixed(1) : t.size) + ' @ $' + (typeof t.price === 'number' ? t.price.toFixed(2) : t.price);
+      const badge = t.source === 'bot' ? '<span style="color:var(--green);font-size:8px;border:1px solid var(--green);padding:0 3px;margin-left:3px;">BOT</span>' : '';
+      return '<div class="log-row">' +
+        '<div style="display:flex;align-items:center;gap:4px;min-width:0;">' +
+          '<span style="color:' + color + ';">' + icon + '</span>' +
+          '<span style="color:' + color + ';font-weight:700;white-space:nowrap;">' + label + '</span>' + badge +
+          '<span style="color:var(--text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + detail + '</span>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">' +
+          '<span style="color:var(--text-dim);font-size:9px;">' + market + '</span>' +
+          '<span style="color:var(--text-dim);font-size:8px;">' + date + ' ' + time + '</span>' +
+        '</div></div>';
+    }).join('');
+  } catch (e) {}
+}
+
+// Bot messages
+async function loadBotMessages() {
+  try {
+    const res = await fetch(API + '/api/bot-messages');
+    const d = await res.json();
+    const el = document.getElementById('bot-messages');
+    if (!d.messages?.length) {
+      el.innerHTML = '<div style="color:var(--text-dim);text-align:center;padding:6px 0;">No messages</div>';
+      return;
+    }
+    el.innerHTML = d.messages.slice().reverse().map(m => {
+      const time = new Date(m.ts).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
+      const colors = { info: 'var(--green)', warn: 'var(--yellow)', error: 'var(--red)', trade: 'var(--green)' };
+      const icons = { info: '&#x2139;', warn: '&#x26A0;', error: '&#x2717;', trade: '&#x26A1;' };
+      const c = colors[m.type] || 'var(--text-dim)';
+      const ic = icons[m.type] || '&#x25CF;';
+      return '<div style="padding:3px 0;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:4px;">' +
+        '<span style="color:' + c + ';flex-shrink:0;">' + ic + '</span>' +
+        '<span style="color:var(--text);flex:1;">' + m.text + '</span>' +
+        '<span style="color:var(--text-dim);font-size:9px;flex-shrink:0;">' + time + '</span>' +
+      '</div>';
+    }).join('');
+
+    // Update ticker with latest
+    const latest = d.messages[d.messages.length - 1];
+    if (latest) {
+      document.getElementById('ticker-text').textContent = latest.text;
+      document.getElementById('ticker-time').textContent = new Date(latest.ts).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
+    }
+  } catch (e) {}
+}
+
+// Load all data
+async function loadAll() {
+  await Promise.all([loadMarket(), loadPositions(), loadOrders(), loadTradeLog(), loadBotMessages()]);
+}
+
+// Init
+initAuth().then(() => {
+  loadAll();
+  setInterval(loadMarket, 10000);
+  setInterval(loadPositions, 15000);
+  setInterval(loadOrders, 10000);
+  setInterval(loadTradeLog, 10000);
+  setInterval(loadBotMessages, 8000);
+});
+</script>
+</body>
+</html>

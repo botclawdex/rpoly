@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>rPoly | Data Lab</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:#0a0a0a; --card-bg:#0d1117; --border:#1a2a1a;
+      --text:#c9d1d9; --text-dim:#5a6a5a;
+      --green:#00ff41; --red:#ff3232; --yellow:#ffaa00;
+      --green-glow:rgba(0,255,65,.08); --red-glow:rgba(255,50,50,.08);
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:'JetBrains Mono',monospace; background:var(--bg); color:var(--text); font-size:12px; min-height:100vh; line-height:1.5; overflow-y:scroll; }
+    body::before {
+      content:'';position:fixed;top:0;left:0;width:100%;height:100%;
+      background:repeating-linear-gradient(0deg,rgba(0,0,0,0.1),rgba(0,0,0,0.1) 1px,transparent 1px,transparent 2px);
+      pointer-events:none;z-index:1000;
+    }
+
+    /* Header */
+    header {
+      display:grid; grid-template-columns:1fr auto 1fr; align-items:center;
+      padding:10px 24px; border-bottom:1px solid var(--border); margin-bottom:0;
+    }
+    header > div:last-child { justify-self:end; }
+    .logo { font-size:22px; font-weight:700; color:var(--green); }
+    .logo span { color:var(--text); }
+    .nav-tab {
+      display:inline-block; padding:5px 12px; font-size:10px; font-weight:600;
+      letter-spacing:1px; text-transform:uppercase; text-decoration:none;
+      color:var(--text-dim); border:1px solid transparent; transition:all .2s;
+    }
+    .nav-tab:hover { color:var(--green); background:rgba(0,255,65,0.05); border-color:rgba(0,255,65,0.15); }
+    .nav-tab-active { color:var(--green); border-color:rgba(0,255,65,0.25); background:rgba(0,255,65,0.06); }
+    .header-clock {
+      display:flex; align-items:center; gap:6px;
+      padding:4px 14px; background:rgba(0,255,65,0.04);
+      border:1px solid rgba(0,255,65,0.15); border-radius:3px;
+    }
+    .clock-time { font-size:14px; font-weight:700; color:var(--green); letter-spacing:1.5px; text-shadow:0 0 8px rgba(0,255,65,0.5), 0 0 20px rgba(0,255,65,0.2); }
+    .clock-label { font-size:9px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px; opacity:0.7; }
+    .clock-sep { font-size:12px; color:rgba(0,255,65,0.3); margin:0 2px; }
+
+    /* Layout */
+    .container { padding:12px 24px; display:flex; flex-direction:column; gap:16px; }
+    .row { display:grid; gap:12px; }
+    .row-4 { grid-template-columns:repeat(4,1fr); }
+    .row-2 { grid-template-columns:1fr 1fr; }
+    .row-1 { grid-template-columns:1fr; }
+
+    .card { background:var(--card-bg); border:1px solid var(--border); padding:12px; border-radius:0; }
+    .card:hover { border-color:#2a4a2a; }
+    .card-label { font-size:9px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px; margin-bottom:6px; }
+    .val { font-size:20px; font-weight:700; color:var(--green); }
+    .val-sm { font-size:14px; font-weight:700; }
+    .sub { font-size:10px; color:var(--text-dim); margin-top:2px; }
+    .up { color:var(--green); }
+    .down { color:var(--red); }
+
+    /* Odds chart */
+    #odds-chart { width:100%; height:200px; display:block; }
+
+    /* Whale table */
+    .whale-row { display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px solid rgba(255,255,255,0.03); font-size:10px; }
+    .whale-addr { color:var(--text-dim); font-size:9px; }
+    .whale-amt { font-weight:700; }
+    .whale-bar { height:3px; border-radius:1px; margin-top:2px; }
+
+    /* Trade table */
+    .t-table { width:100%; border-collapse:collapse; font-size:10px; }
+    .t-table th { text-align:left; padding:6px 8px; color:var(--text-dim); font-size:9px; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid var(--border); }
+    .t-table td { padding:5px 8px; border-bottom:1px solid rgba(255,255,255,0.03); }
+    .t-table tr:hover td { background:rgba(0,255,65,0.02); }
+
+    /* Pattern cards */
+    .pattern { padding:8px; margin-bottom:6px; border-left:2px solid var(--green); background:rgba(0,255,65,0.03); font-size:10px; line-height:1.5; }
+    .pattern.low { border-color:var(--yellow); background:rgba(255,170,0,0.03); }
+    .pattern .conf { font-size:9px; color:var(--text-dim); }
+
+    /* Status dot */
+    .status-dot { width:6px; height:6px; border-radius:50%; display:inline-block; margin-right:4px; }
+    .status-dot.on { background:var(--green); box-shadow:0 0 6px var(--green); animation:blink 2s infinite; }
+    .status-dot.off { background:var(--red); }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    /* Global trades feed */
+    .feed-entry { display:flex; gap:8px; align-items:center; padding:3px 0; font-size:10px; border-bottom:1px solid rgba(255,255,255,0.02); }
+    .feed-side { font-weight:700; width:32px; }
+    .feed-time { color:var(--text-dim); font-size:9px; margin-left:auto; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div style="display:flex;align-items:center;gap:4px;">
+    <div class="logo">r<span>Poly</span>_</div>
+    <nav style="display:flex;gap:2px;margin-left:12px;">
+      <a href="/" class="nav-tab">Dashboard</a>
+      <a href="/trade" class="nav-tab">Trade</a>
+      <a href="/learn" class="nav-tab nav-tab-active">Data Lab</a>
+      <a href="/hub" class="nav-tab">Hub</a>
+    </nav>
+  </div>
+  <div style="text-align:center;">
+    <div class="header-clock" id="header-time">
+      <span class="clock-time" id="utc-time">--:--:--</span>
+      <span class="clock-label">UTC</span>
+      <span class="clock-sep">|</span>
+      <span class="clock-time" id="pl-time">--:--:--</span>
+      <span class="clock-label">PL</span>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;justify-self:end;">
+    <span class="status-dot" id="collector-dot-nav"></span>
+    <span style="font-size:10px;color:var(--text-dim);" id="collector-label-nav">COLLECTOR</span>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- Row 1: Collector Status -->
+  <div class="row row-4">
+    <div class="card">
+      <div class="card-label"><span class="status-dot" id="collector-dot"></span> Collector</div>
+      <div class="val-sm" id="collector-status">--</div>
+      <div class="sub" id="collector-market">--</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Odds Snapshots</div>
+      <div class="val" id="stat-odds">0</div>
+      <div class="sub">today</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Global Trades</div>
+      <div class="val" id="stat-trades">0</div>
+      <div class="sub" id="stat-trades-ratio">--</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Whale Scans</div>
+      <div class="val" id="stat-whales">0</div>
+      <div class="sub">today</div>
+    </div>
+  </div>
+
+  <!-- Row 2: Odds History Chart -->
+  <div class="card">
+    <div class="card-label" style="display:flex;justify-content:space-between;">
+      <span>Odds History (UP/DOWN)</span>
+      <span style="font-size:9px;color:var(--text-dim);" id="odds-chart-info">loading...</span>
+    </div>
+    <canvas id="odds-chart"></canvas>
+  </div>
+
+  <!-- Row 3: Patterns + Whales -->
+  <div class="row row-2">
+    <div class="card">
+      <div class="card-label">Discovered Patterns</div>
+      <div id="patterns-container">
+        <div style="color:var(--text-dim);padding:10px 0;">Collecting data... patterns appear after enough snapshots.</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-label">Whale Watch (Current Market)</div>
+      <div id="whales-container">
+        <div style="color:var(--text-dim);padding:10px 0;">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 4: Global Trade Feed -->
+  <div class="card">
+    <div class="card-label" style="display:flex;justify-content:space-between;">
+      <span>Global Trade Feed</span>
+      <span style="font-size:9px;color:var(--text-dim);" id="feed-stats">--</span>
+    </div>
+    <div id="feed-container" style="max-height:200px;overflow-y:auto;">
+      <div style="color:var(--text-dim);padding:10px 0;">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Row 5: Data Summary -->
+  <div class="card">
+    <div class="card-label">Data Summary</div>
+    <div id="summary-container" style="font-size:10px;color:var(--text-dim);">
+      Loading pattern analysis...
+    </div>
+  </div>
+
+</div>
+
+<script>
+// Clock
+function updateClock() {
+  const now = new Date();
+  document.getElementById('utc-time').textContent =
+    now.toLocaleTimeString('en-GB',{timeZone:'UTC',hour12:false});
+  document.getElementById('pl-time').textContent =
+    now.toLocaleTimeString('en-GB',{timeZone:'Europe/Warsaw',hour12:false});
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// Fetch collector status
+async function fetchStatus() {
+  try {
+    const r = await fetch('/api/learn/status');
+    const d = await r.json();
+    const dot = document.getElementById('collector-dot');
+    dot.className = 'status-dot ' + (d.running ? 'on' : 'off');
+    const dotNav = document.getElementById('collector-dot-nav');
+    if (dotNav) dotNav.className = 'status-dot ' + (d.running ? 'on' : 'off');
+    const labelNav = document.getElementById('collector-label-nav');
+    if (labelNav) labelNav.textContent = d.running ? 'COLLECTING' : 'OFFLINE';
+    document.getElementById('collector-status').textContent = d.running ? 'RUNNING' : 'OFFLINE';
+    document.getElementById('collector-status').style.color = d.running ? 'var(--green)' : 'var(--red)';
+    document.getElementById('collector-market').textContent = d.stats.lastMarket || 'no market';
+    document.getElementById('stat-odds').textContent = d.stats.odds || 0;
+    document.getElementById('stat-whales').textContent = d.stats.whales || 0;
+  } catch(e) {}
+}
+
+// Fetch odds history and draw chart
+async function fetchOddsChart() {
+  try {
+    const r = await fetch('/api/learn/odds-history?minutes=60');
+    const d = await r.json();
+    document.getElementById('odds-chart-info').textContent = d.count + ' points (last 60min)';
+    drawOddsChart(d.data);
+  } catch(e) {}
+}
+
+function drawOddsChart(data) {
+  const canvas = document.getElementById('odds-chart');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+
+  if (data.length < 2) {
+    ctx.fillStyle = '#5a6a5a';
+    ctx.font = '11px JetBrains Mono';
+    ctx.textAlign = 'center';
+    ctx.fillText('Collecting data... ' + data.length + ' points so far', w/2, h/2);
+    return;
+  }
+
+  const pad = { t:20, r:50, b:25, l:10 };
+  const cw = w - pad.l - pad.r;
+  const ch = h - pad.t - pad.b;
+
+  // Find y range
+  let minY = 0.3, maxY = 0.7;
+  data.forEach(d => {
+    if (d.upPrice < minY) minY = d.upPrice - 0.05;
+    if (d.upPrice > maxY) maxY = d.upPrice + 0.05;
+    if (d.downPrice < minY) minY = d.downPrice - 0.05;
+    if (d.downPrice > maxY) maxY = d.downPrice + 0.05;
+  });
+
+  const xScale = cw / (data.length - 1);
+  const yScale = ch / (maxY - minY);
+
+  // 50% line
+  const y50 = pad.t + (maxY - 0.5) * yScale;
+  ctx.setLineDash([4,4]);
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.beginPath(); ctx.moveTo(pad.l, y50); ctx.lineTo(pad.l + cw, y50); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#5a6a5a'; ctx.font = '9px JetBrains Mono'; ctx.textAlign = 'right';
+  ctx.fillText('50%', pad.l + cw + 28, y50 + 3);
+
+  // UP line (green)
+  ctx.strokeStyle = '#00ff41';
+  ctx.lineWidth = 1.5;
+  ctx.shadowColor = 'rgba(0,255,65,0.3)';
+  ctx.shadowBlur = 4;
+  ctx.beginPath();
+  data.forEach((d, i) => {
+    const x = pad.l + i * xScale;
+    const y = pad.t + (maxY - d.upPrice) * yScale;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // DOWN line (red)
+  ctx.strokeStyle = '#ff3232';
+  ctx.shadowColor = 'rgba(255,50,50,0.3)';
+  ctx.shadowBlur = 4;
+  ctx.beginPath();
+  data.forEach((d, i) => {
+    const x = pad.l + i * xScale;
+    const y = pad.t + (maxY - d.downPrice) * yScale;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Labels
+  const lastUp = data[data.length-1].upPrice;
+  const lastDn = data[data.length-1].downPrice;
+  const lastUpY = pad.t + (maxY - lastUp) * yScale;
+  const lastDnY = pad.t + (maxY - lastDn) * yScale;
+
+  ctx.font = '10px JetBrains Mono'; ctx.textAlign = 'left';
+  ctx.fillStyle = '#00ff41';
+  ctx.fillText('UP ' + (lastUp*100).toFixed(0) + '%', pad.l + cw + 4, lastUpY + 3);
+  ctx.fillStyle = '#ff3232';
+  ctx.fillText('DN ' + (lastDn*100).toFixed(0) + '%', pad.l + cw + 4, lastDnY + 3);
+
+  // Time labels
+  ctx.fillStyle = '#5a6a5a'; ctx.font = '8px JetBrains Mono'; ctx.textAlign = 'center';
+  const first = new Date(data[0].t);
+  const last = new Date(data[data.length-1].t);
+  ctx.fillText(first.toLocaleTimeString('en-GB',{timeZone:'UTC',hour12:false}).slice(0,5), pad.l, h - 5);
+  ctx.fillText(last.toLocaleTimeString('en-GB',{timeZone:'UTC',hour12:false}).slice(0,5), pad.l + cw, h - 5);
+}
+
+// Fetch whales
+async function fetchWhales() {
+  try {
+    const r = await fetch('/api/learn/whales');
+    const d = await r.json();
+    const el = document.getElementById('whales-container');
+    if (!d.latest || !d.latest.holders?.length) {
+      el.innerHTML = '<div style="color:var(--text-dim)">No whale data yet (' + d.totalScans + ' scans today)</div>';
+      return;
+    }
+    const holders = d.latest.holders;
+    let upTotal = 0, dnTotal = 0;
+    holders.forEach(h => { if (h.outcome === 'UP') upTotal += h.amount; else dnTotal += h.amount; });
+    const maxAmt = Math.max(...holders.map(h => h.amount), 1);
+
+    let html = '';
+    holders.forEach((h, i) => {
+      const isUp = h.outcome === 'UP';
+      const pct = ((h.amount / maxAmt) * 100).toFixed(0);
+      html += '<div class="whale-row">';
+      html += '<span>' + (i+1) + '. <span class="whale-addr">' + (h.name || h.addr) + '</span></span>';
+      html += '<span class="whale-amt ' + (isUp ? 'up' : 'down') + '">' + h.amount.toFixed(0) + 'sh ' + h.outcome + '</span>';
+      html += '</div>';
+      html += '<div class="whale-bar" style="background:' + (isUp ? 'var(--green)' : 'var(--red)') + ';width:' + pct + '%;opacity:0.3;"></div>';
+    });
+
+    const totalSh = upTotal + dnTotal;
+    const upPct = totalSh > 0 ? Math.round((upTotal / totalSh) * 100) : 50;
+    html += '<div style="margin-top:8px;font-size:9px;color:var(--text-dim);">';
+    html += 'Whale consensus: <span class="' + (upPct > 50 ? 'up' : 'down') + '">' + upPct + '% UP</span> / ' + (100-upPct) + '% DOWN';
+    html += ' | ' + d.totalScans + ' scans today</div>';
+
+    el.innerHTML = html;
+  } catch(e) {}
+}
+
+// Fetch global trades
+async function fetchGlobalTrades() {
+  try {
+    const r = await fetch('/api/learn/global-trades');
+    const d = await r.json();
+
+    document.getElementById('stat-trades').textContent = d.stats.total || 0;
+    const ratio = d.stats.total > 0 ? Math.round((d.stats.buys / d.stats.total) * 100) : 50;
+    document.getElementById('stat-trades-ratio').textContent = ratio + '% buy / ' + (100-ratio) + '% sell';
+    document.getElementById('feed-stats').textContent = d.stats.total + ' trades | avg ' + d.stats.avgSize + 'sh';
+
+    const el = document.getElementById('feed-container');
+    if (!d.trades?.length) {
+      el.innerHTML = '<div style="color:var(--text-dim)">No trades captured yet</div>';
+      return;
+    }
+
+    let html = '';
+    d.trades.reverse().slice(0, 30).forEach(t => {
+      const isBuy = t.side === 'BUY';
+      const time = t.timestamp ? new Date(t.timestamp * 1000).toLocaleTimeString('en-GB',{timeZone:'UTC',hour12:false}).slice(0,8) : '--';
+      html += '<div class="feed-entry">';
+      html += '<span class="feed-side ' + (isBuy ? 'up' : 'down') + '">' + t.side + '</span>';
+      html += '<span>' + (t.outcome || '--') + '</span>';
+      html += '<span style="font-weight:700;">' + (parseFloat(t.size)||0).toFixed(0) + 'sh</span>';
+      html += '<span style="color:var(--text-dim);">@ $' + (parseFloat(t.price)||0).toFixed(2) + '</span>';
+      html += '<span class="whale-addr">' + (t.maker || '--') + '</span>';
+      html += '<span class="feed-time">' + time + '</span>';
+      html += '</div>';
+    });
+    el.innerHTML = html;
+  } catch(e) {}
+}
+
+// Fetch patterns
+async function fetchPatterns() {
+  try {
+    const r = await fetch('/api/learn/patterns');
+    const d = await r.json();
+
+    const el = document.getElementById('patterns-container');
+    const sumEl = document.getElementById('summary-container');
+
+    if (!d.totalSnapshots || d.totalSnapshots < 10) {
+      el.innerHTML = '<div style="color:var(--text-dim)">Need more data... (' + (d.totalSnapshots||0) + ' snapshots, need 10+)</div>';
+      sumEl.innerHTML = 'Collecting... ' + (d.totalSnapshots||0) + ' snapshots across ' + (d.totalMarkets||0) + ' markets on ' + (d.uniqueDays||0) + ' days.';
+      return;
+    }
+
+    el.innerHTML =
+      '<div class="pattern">Odds data collected for <strong>' + d.totalMarkets + '</strong> markets across <strong>' + d.uniqueDays + '</strong> days.<div class="conf">Total snapshots: ' + d.totalSnapshots + '</div></div>' +
+      '<div class="pattern low">Pattern analysis improves with more data. Keep the collector running.<div class="conf">Auto-rebuilds every 5 minutes</div></div>';
+
+    sumEl.innerHTML = d.totalSnapshots + ' snapshots | ' + d.totalMarkets + ' markets | ' + d.uniqueDays + ' days | Last update: ' + (d.lastUpdated ? new Date(d.lastUpdated).toLocaleTimeString('en-GB',{timeZone:'UTC',hour12:false}) : '--');
+  } catch(e) {}
+}
+
+// Init
+function init() {
+  fetchStatus();
+  fetchOddsChart();
+  fetchWhales();
+  fetchGlobalTrades();
+  fetchPatterns();
+
+  setInterval(fetchStatus, 10000);
+  setInterval(fetchOddsChart, 30000);
+  setInterval(fetchWhales, 60000);
+  setInterval(fetchGlobalTrades, 30000);
+  setInterval(fetchPatterns, 300000);
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>rPoly | Intelligence Hub</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:#0a0a0a; --card:#0d1117; --card-hover:#161b22;
+      --border:#1a2a1a; --border-bright:#2a4a2a;
+      --text:#c9d1d9; --text-dim:#5a6a5a; --text-bright:#e0ffe0;
+      --green:#00ff41; --green-dim:#00cc33; --green-glow:rgba(0,255,65,0.12);
+      --red:#ff3333; --red-glow:rgba(255,51,51,0.12);
+      --yellow:#ffaa00; --blue:#4da6ff;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { font-family:'JetBrains Mono',monospace; background:var(--bg); color:var(--text); font-size:13px; line-height:1.6; overflow-x:hidden; overflow-y:scroll; }
+    body::before {
+      content:'';position:fixed;top:0;left:0;width:100%;height:100%;
+      background:repeating-linear-gradient(0deg,rgba(0,0,0,0.1),rgba(0,0,0,0.1) 1px,transparent 1px,transparent 2px);
+      pointer-events:none;z-index:1000;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width:6px; }
+    ::-webkit-scrollbar-track { background:var(--bg); }
+    ::-webkit-scrollbar-thumb { background:var(--border-bright); border-radius:3px; }
+
+    /* Header */
+    header {
+      display:grid; grid-template-columns:1fr auto 1fr; align-items:center;
+      padding:10px 24px; border-bottom:1px solid var(--border); margin-bottom:0;
+    }
+    header > div:last-child { justify-self:end; }
+    .logo { font-size:22px; font-weight:700; color:var(--green); text-decoration:none; }
+    .logo span { color:var(--text); }
+    .nav-tab {
+      display:inline-block; padding:5px 12px; font-size:10px; font-weight:600;
+      letter-spacing:1px; text-transform:uppercase; text-decoration:none;
+      color:var(--text-dim); border:1px solid transparent; transition:all .2s;
+    }
+    .nav-tab:hover { color:var(--green); background:rgba(0,255,65,0.05); border-color:rgba(0,255,65,0.15); }
+    .nav-tab-active { color:var(--green); border-color:rgba(0,255,65,0.25); background:rgba(0,255,65,0.06); }
+    .header-clock {
+      display:flex; align-items:center; gap:6px;
+      padding:4px 14px; background:rgba(0,255,65,0.04);
+      border:1px solid rgba(0,255,65,0.15); border-radius:3px;
+    }
+    .clock-time { font-size:14px; font-weight:700; color:var(--green); letter-spacing:1.5px; text-shadow:0 0 8px rgba(0,255,65,0.5), 0 0 20px rgba(0,255,65,0.2); }
+    .clock-label { font-size:9px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px; opacity:0.7; }
+    .clock-sep { font-size:12px; color:rgba(0,255,65,0.3); margin:0 2px; }
+    .dot { width:6px; height:6px; border-radius:50%; display:inline-block; }
+    .dot.on { background:var(--green); box-shadow:0 0 8px var(--green); animation:pulse 2s infinite; }
+    .dot.off { background:var(--red); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    /* Sections */
+    section { padding:100px 32px 60px; max-width:1100px; margin:0 auto; }
+    section:first-of-type { padding-top:60px; }
+
+    /* Hero */
+    .hero { text-align:center; padding-top:60px; padding-bottom:60px; }
+    .hero-pre { font-size:11px; letter-spacing:3px; text-transform:uppercase; color:var(--green); margin-bottom:16px; opacity:0.7; }
+    .hero h1 { font-size:42px; font-weight:900; color:var(--text-bright); line-height:1.1; margin-bottom:20px; }
+    .hero h1 .accent { color:var(--green); text-shadow:0 0 30px rgba(0,255,65,0.3); }
+    .hero-sub { font-size:14px; color:var(--text-dim); max-width:600px; margin:0 auto 32px; line-height:1.7; }
+    .hero-badges { display:flex; justify-content:center; gap:12px; flex-wrap:wrap; margin-bottom:40px; }
+    .badge { padding:4px 12px; border:1px solid var(--border); font-size:10px; letter-spacing:1px; text-transform:uppercase; color:var(--text-dim); }
+    .badge.live { border-color:var(--green); color:var(--green); background:rgba(0,255,65,0.05); }
+    .hero-cta { display:flex; gap:12px; justify-content:center; }
+    .btn { padding:10px 24px; font-family:inherit; font-size:12px; font-weight:700; letter-spacing:1px; text-transform:uppercase; text-decoration:none; cursor:pointer; transition:all .2s; }
+    .btn-primary { background:var(--green); color:var(--bg); border:1px solid var(--green); }
+    .btn-primary:hover { box-shadow:0 0 20px rgba(0,255,65,0.3); }
+    .btn-ghost { background:transparent; color:var(--green); border:1px solid var(--border-bright); }
+    .btn-ghost:hover { border-color:var(--green); background:rgba(0,255,65,0.05); }
+
+    /* Section headers */
+    .section-label { font-size:10px; letter-spacing:3px; text-transform:uppercase; color:var(--green); margin-bottom:8px; opacity:0.6; }
+    .section-title { font-size:24px; font-weight:700; color:var(--text-bright); margin-bottom:8px; }
+    .section-sub { font-size:12px; color:var(--text-dim); margin-bottom:32px; max-width:600px; }
+
+    /* Cards grid */
+    .grid-3 { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+    .grid-2 { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }
+
+    .card { background:var(--card); border:1px solid var(--border); padding:20px; transition:border-color .2s, transform .2s; }
+    .card:hover { border-color:var(--border-bright); transform:translateY(-2px); }
+    .card-icon { font-size:20px; margin-bottom:12px; }
+    .card-title { font-size:13px; font-weight:700; color:var(--text-bright); margin-bottom:6px; }
+    .card-text { font-size:11px; color:var(--text-dim); line-height:1.6; }
+    .card-tag { display:inline-block; padding:2px 8px; font-size:9px; letter-spacing:1px; text-transform:uppercase; margin-top:10px; }
+    .tag-live { background:rgba(0,255,65,0.1); color:var(--green); border:1px solid rgba(0,255,65,0.2); }
+    .tag-soon { background:rgba(255,170,0,0.1); color:var(--yellow); border:1px solid rgba(255,170,0,0.2); }
+    .tag-exp { background:rgba(77,166,255,0.1); color:var(--blue); border:1px solid rgba(77,166,255,0.2); }
+
+    /* Live data cards */
+    .live-card { position:relative; overflow:hidden; }
+    .live-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:linear-gradient(90deg, transparent, var(--green), transparent); opacity:0.4; }
+    .live-val { font-size:22px; font-weight:900; color:var(--green); margin:8px 0 4px; }
+    .live-label { font-size:9px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px; }
+    .live-chart { width:100%; height:60px; margin-top:8px; }
+    .live-row { display:flex; justify-content:space-between; align-items:center; padding:3px 0; font-size:10px; border-bottom:1px solid rgba(255,255,255,0.03); }
+    .live-row:last-child { border:none; }
+
+    /* Ratio bar */
+    .ratio-bar { height:6px; background:var(--border); margin:8px 0; display:flex; overflow:hidden; }
+    .ratio-buy { background:var(--green); transition:width .5s; }
+    .ratio-sell { background:var(--red); transition:width .5s; }
+
+    /* API docs */
+    .api-endpoint { background:var(--card); border:1px solid var(--border); margin-bottom:8px; overflow:hidden; }
+    .api-header { display:flex; align-items:center; gap:12px; padding:14px 16px; cursor:pointer; transition:background .2s; }
+    .api-header:hover { background:var(--card-hover); }
+    .api-method { padding:2px 8px; font-size:10px; font-weight:700; letter-spacing:1px; background:rgba(0,255,65,0.1); color:var(--green); }
+    .api-path { font-size:12px; color:var(--text-bright); font-weight:500; }
+    .api-desc { font-size:10px; color:var(--text-dim); margin-left:auto; }
+    .api-chevron { color:var(--text-dim); font-size:10px; transition:transform .2s; margin-left:8px; }
+    .api-body { display:none; padding:0 16px 16px; }
+    .api-body.open { display:block; }
+    .api-chevron.open { transform:rotate(90deg); }
+    .code-block { background:#080c08; border:1px solid var(--border); padding:12px; font-size:10px; line-height:1.6; overflow-x:auto; margin-top:8px; color:var(--text-dim); white-space:pre; }
+    .code-block .kw { color:var(--green); }
+    .code-block .str { color:var(--yellow); }
+    .code-block .num { color:var(--blue); }
+
+    /* Strategy cards */
+    .strat-card { position:relative; padding-left:16px; border-left:3px solid var(--border); }
+    .strat-card.fade { border-color:var(--red); }
+    .strat-card.whale { border-color:var(--blue); }
+    .strat-card.momentum { border-color:var(--green); }
+    .strat-name { font-size:14px; font-weight:700; color:var(--text-bright); margin-bottom:4px; }
+    .strat-logic { font-size:11px; color:var(--text-dim); line-height:1.6; margin-bottom:8px; }
+    .strat-example { font-size:10px; color:var(--text); background:#080c08; padding:8px 12px; border:1px solid var(--border); }
+
+    /* Agent section */
+    .agent-section { background:linear-gradient(135deg, rgba(0,255,65,0.03) 0%, rgba(77,166,255,0.03) 100%); border:1px solid var(--border); padding:40px; text-align:center; }
+    .agent-section h3 { font-size:20px; font-weight:700; color:var(--text-bright); margin-bottom:8px; }
+    .agent-section p { font-size:12px; color:var(--text-dim); max-width:500px; margin:0 auto 24px; }
+    .agent-features { display:flex; justify-content:center; gap:32px; margin-bottom:24px; flex-wrap:wrap; }
+    .agent-feat { text-align:center; }
+    .agent-feat-icon { font-size:24px; margin-bottom:6px; }
+    .agent-feat-text { font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px; }
+    .btn-waitlist { padding:12px 32px; background:transparent; border:1px solid var(--yellow); color:var(--yellow); font-family:inherit; font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; cursor:pointer; transition:all .2s; }
+    .btn-waitlist:hover { background:rgba(255,170,0,0.08); box-shadow:0 0 20px rgba(255,170,0,0.15); }
+
+    /* Footer */
+    .footer { padding:40px 32px; border-top:1px solid var(--border); text-align:center; }
+    .footer-links { display:flex; justify-content:center; gap:20px; margin-bottom:12px; }
+    .footer-links a { color:var(--text-dim); text-decoration:none; font-size:10px; letter-spacing:1px; text-transform:uppercase; transition:color .2s; }
+    .footer-links a:hover { color:var(--green); }
+    .footer-note { font-size:9px; color:var(--text-dim); opacity:0.5; }
+
+    /* Fade-in animation */
+    .fade-in { opacity:0; transform:translateY(20px); transition:opacity .6s ease, transform .6s ease; }
+    .fade-in.visible { opacity:1; transform:translateY(0); }
+
+    /* Responsive */
+    @media (max-width:900px) {
+      .grid-3 { grid-template-columns:1fr; }
+      .grid-2 { grid-template-columns:1fr; }
+      .hero h1 { font-size:28px; }
+      section { padding:60px 16px 40px; }
+      .hero { padding-top:40px; }
+      .agent-features { gap:16px; }
+    }
+    @media (max-width:600px) {
+      header { padding:10px 16px; }
+      .hero-cta { flex-direction:column; align-items:center; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div style="display:flex;align-items:center;gap:4px;">
+    <a href="/" class="logo">r<span>Poly</span>_</a>
+    <nav style="display:flex;gap:2px;margin-left:12px;">
+      <a href="/" class="nav-tab">Dashboard</a>
+      <a href="/trade" class="nav-tab">Trade</a>
+      <a href="/learn" class="nav-tab">Data Lab</a>
+      <a href="/hub" class="nav-tab nav-tab-active">Hub</a>
+    </nav>
+  </div>
+  <div style="text-align:center;">
+    <div class="header-clock">
+      <span class="clock-time" id="utc-time">--:--:--</span>
+      <span class="clock-label">UTC</span>
+      <span class="clock-sep">|</span>
+      <span class="clock-time" id="pl-time">--:--:--</span>
+      <span class="clock-label">PL</span>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;justify-self:end;">
+    <span class="dot" id="nav-dot"></span>
+    <span style="font-size:10px;color:var(--text-dim);" id="nav-status-text">--</span>
+  </div>
+</header>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="fade-in">
+    <div class="hero-pre">// intelligence layer for polymarket</div>
+    <h1>r<span class="accent">Poly</span> Intelligence Hub</h1>
+    <p class="hero-sub">
+      Real-time odds tracking, whale detection, and trade signal generation
+      for Polymarket BTC 5-minute markets. Built for humans and agents.
+    </p>
+    <div class="hero-badges">
+      <span class="badge live"><span class="dot on" style="margin-right:4px;"></span> Collector Active</span>
+      <span class="badge" id="badge-snapshots">-- snapshots</span>
+      <span class="badge" id="badge-trades">-- trades</span>
+      <span class="badge" id="badge-whales">-- whale scans</span>
+    </div>
+    <div class="hero-cta">
+      <a href="#api" class="btn btn-primary">Explore API</a>
+      <a href="/" class="btn btn-ghost">Dashboard</a>
+    </div>
+  </div>
+</section>
+
+<!-- Live Data -->
+<section id="live">
+  <div class="section-label fade-in">Live Data</div>
+  <div class="section-title fade-in">Real-Time Intelligence</div>
+  <p class="section-sub fade-in">Data collected every 30 seconds from Polymarket CLOB and Data APIs.</p>
+
+  <div class="grid-3 fade-in">
+    <!-- Odds Pulse -->
+    <div class="card live-card">
+      <div class="live-label">Odds Pulse (UP token)</div>
+      <div class="live-val" id="live-odds">--</div>
+      <div style="font-size:10px;color:var(--text-dim);" id="live-odds-market">loading...</div>
+      <canvas class="live-chart" id="mini-odds-chart"></canvas>
+      <span class="card-tag tag-live">Live</span>
+    </div>
+
+    <!-- Whale Radar -->
+    <div class="card live-card">
+      <div class="live-label">Whale Radar</div>
+      <div class="live-val" id="live-whale-count">--</div>
+      <div style="font-size:10px;color:var(--text-dim);">top holders this market</div>
+      <div id="whale-list" style="margin-top:10px;">
+        <div style="color:var(--text-dim);font-size:10px;">loading...</div>
+      </div>
+      <span class="card-tag tag-live">Live</span>
+    </div>
+
+    <!-- Trade Flow -->
+    <div class="card live-card">
+      <div class="live-label">Trade Flow</div>
+      <div class="live-val" id="live-flow">--</div>
+      <div style="font-size:10px;color:var(--text-dim);" id="live-flow-sub">loading...</div>
+      <div class="ratio-bar">
+        <div class="ratio-buy" id="ratio-buy" style="width:50%;"></div>
+        <div class="ratio-sell" id="ratio-sell" style="width:50%;"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:9px;">
+        <span style="color:var(--green);" id="ratio-buy-pct">--% buy</span>
+        <span style="color:var(--red);" id="ratio-sell-pct">--% sell</span>
+      </div>
+      <div id="trade-feed" style="margin-top:8px;"></div>
+      <span class="card-tag tag-live">Live</span>
+    </div>
+  </div>
+</section>
+
+<!-- API Documentation -->
+<section id="api">
+  <div class="section-label fade-in">API</div>
+  <div class="section-title fade-in">Public Endpoints</div>
+  <p class="section-sub fade-in">Access rPoly intelligence data via REST API. All endpoints return JSON.</p>
+
+  <div class="fade-in" id="api-list">
+
+    <div class="api-endpoint">
+      <div class="api-header" onclick="toggleApi(this)">
+        <span class="api-method">GET</span>
+        <span class="api-path">/api/learn/status</span>
+        <span class="api-desc">Collector status and stats</span>
+        <span class="api-chevron">&#9654;</span>
+      </div>
+      <div class="api-body">
+        <div class="code-block"><span class="kw">curl</span> <span class="str">https://rpoly.vercel.app/api/learn/status</span></div>
+        <div class="code-block">{
+  <span class="str">"running"</span>: <span class="kw">true</span>,
+  <span class="str">"stats"</span>: {
+    <span class="str">"odds"</span>: <span class="num">142</span>,
+    <span class="str">"globalTrades"</span>: <span class="num">3847</span>,
+    <span class="str">"whales"</span>: <span class="num">28</span>,
+    <span class="str">"lastMarket"</span>: <span class="str">"btc-updown-5m-1771287300"</span>
+  },
+  <span class="str">"timestamp"</span>: <span class="num">1771287205054</span>
+}</div>
+      </div>
+    </div>
+
+    <div class="api-endpoint">
+      <div class="api-header" onclick="toggleApi(this)">
+        <span class="api-method">GET</span>
+        <span class="api-path">/api/learn/odds-history</span>
+        <span class="api-desc">Historical odds snapshots</span>
+        <span class="api-chevron">&#9654;</span>
+      </div>
+      <div class="api-body">
+        <div class="code-block"><span class="kw">curl</span> <span class="str">"https://rpoly.vercel.app/api/learn/odds-history?minutes=60"</span></div>
+        <div class="code-block">{
+  <span class="str">"count"</span>: <span class="num">120</span>,
+  <span class="str">"data"</span>: [
+    {
+      <span class="str">"t"</span>: <span class="num">1771287075014</span>,
+      <span class="str">"market"</span>: <span class="str">"btc-updown-5m-1771287300"</span>,
+      <span class="str">"upPrice"</span>: <span class="num">0.505</span>,
+      <span class="str">"downPrice"</span>: <span class="num">0.495</span>,
+      <span class="str">"midpoint"</span>: <span class="num">0.505</span>,
+      <span class="str">"volume"</span>: <span class="num">78.71</span>
+    }
+  ]
+}</div>
+        <div style="font-size:10px;color:var(--text-dim);margin-top:8px;">
+          Params: <code>minutes</code> (default 60), <code>market</code> (slug filter)
+        </div>
+      </div>
+    </div>
+
+    <div class="api-endpoint">
+      <div class="api-header" onclick="toggleApi(this)">
+        <span class="api-method">GET</span>
+        <span class="api-path">/api/learn/whales</span>
+        <span class="api-desc">Top holders for current market</span>
+        <span class="api-chevron">&#9654;</span>
+      </div>
+      <div class="api-body">
+        <div class="code-block"><span class="kw">curl</span> <span class="str">https://rpoly.vercel.app/api/learn/whales</span></div>
+        <div class="code-block">{
+  <span class="str">"latest"</span>: {
+    <span class="str">"market"</span>: <span class="str">"btc-updown-5m-..."</span>,
+    <span class="str">"holders"</span>: [
+      { <span class="str">"name"</span>: <span class="str">"Long-Security"</span>, <span class="str">"amount"</span>: <span class="num">100</span>, <span class="str">"outcome"</span>: <span class="str">"UP"</span> },
+      { <span class="str">"name"</span>: <span class="str">"Dental-Constraint"</span>, <span class="str">"amount"</span>: <span class="num">92.3</span>, <span class="str">"outcome"</span>: <span class="str">"UP"</span> }
+    ]
+  },
+  <span class="str">"totalScans"</span>: <span class="num">14</span>
+}</div>
+      </div>
+    </div>
+
+    <div class="api-endpoint">
+      <div class="api-header" onclick="toggleApi(this)">
+        <span class="api-method">GET</span>
+        <span class="api-path">/api/learn/global-trades</span>
+        <span class="api-desc">Recent trades and buy/sell stats</span>
+        <span class="api-chevron">&#9654;</span>
+      </div>
+      <div class="api-body">
+        <div class="code-block"><span class="kw">curl</span> <span class="str">https://rpoly.vercel.app/api/learn/global-trades</span></div>
+        <div class="code-block">{
+  <span class="str">"trades"</span>: [ ... ],
+  <span class="str">"stats"</span>: {
+    <span class="str">"total"</span>: <span class="num">847</span>,
+    <span class="str">"buys"</span>: <span class="num">612</span>,
+    <span class="str">"sells"</span>: <span class="num">235</span>,
+    <span class="str">"avgSize"</span>: <span class="str">"15.17"</span>
+  }
+}</div>
+      </div>
+    </div>
+
+    <div class="api-endpoint">
+      <div class="api-header" onclick="toggleApi(this)">
+        <span class="api-method">GET</span>
+        <span class="api-path">/api/learn/patterns</span>
+        <span class="api-desc">Discovered market patterns</span>
+        <span class="api-chevron">&#9654;</span>
+      </div>
+      <div class="api-body">
+        <div class="code-block"><span class="kw">curl</span> <span class="str">https://rpoly.vercel.app/api/learn/patterns</span></div>
+        <div class="code-block">{
+  <span class="str">"totalSnapshots"</span>: <span class="num">4200</span>,
+  <span class="str">"totalMarkets"</span>: <span class="num">350</span>,
+  <span class="str">"uniqueDays"</span>: <span class="num">3</span>,
+  <span class="str">"oddsBuckets"</span>: { ... },
+  <span class="str">"lastUpdated"</span>: <span class="num">1771287205054</span>
+}</div>
+        <div style="font-size:10px;color:var(--text-dim);margin-top:8px;">
+          Pattern analysis improves with more collected data. Rebuilds every 5 minutes.
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- Strategies -->
+<section id="strategies">
+  <div class="section-label fade-in">Strategies</div>
+  <div class="section-title fade-in">Signal Playbook</div>
+  <p class="section-sub fade-in">Trading strategies derived from collected data patterns. These are experimental and for educational purposes.</p>
+
+  <div class="grid-3 fade-in">
+    <div class="card strat-card fade">
+      <div class="strat-name">Fade the Crowd</div>
+      <div class="strat-logic">
+        When 70%+ of volume flows to one side, bet against the majority.
+        Crowds overreact in 5-minute markets, creating contrarian edge.
+      </div>
+      <div class="strat-example">
+        if buyRatio > 0.70 &rarr; signal: SELL<br>
+        if sellRatio > 0.70 &rarr; signal: BUY<br>
+        confidence: proportional to skew
+      </div>
+      <span class="card-tag tag-exp">Experimental</span>
+    </div>
+
+    <div class="card strat-card whale">
+      <div class="strat-name">Whale Shadow</div>
+      <div class="strat-logic">
+        Track top holders' positions. When whales accumulate heavily on one side,
+        follow their conviction. Whales typically have better information.
+      </div>
+      <div class="strat-example">
+        whaleUp > 2x whaleDn &rarr; signal: UP<br>
+        whaleDn > 2x whaleUp &rarr; signal: DOWN<br>
+        strength: by whale concentration
+      </div>
+      <span class="card-tag tag-exp">Experimental</span>
+    </div>
+
+    <div class="card strat-card momentum">
+      <div class="strat-name">Momentum Ride</div>
+      <div class="strat-logic">
+        Detect rapid odds movement in one direction over the last 60 seconds.
+        Ride the momentum before the market corrects or settles.
+      </div>
+      <div class="strat-example">
+        delta(upPrice, 60s) > 0.03 &rarr; BUY UP<br>
+        delta(upPrice, 60s) < -0.03 &rarr; BUY DN<br>
+        exit: at midpoint reversion
+      </div>
+      <span class="card-tag tag-soon">Coming Soon</span>
+    </div>
+  </div>
+</section>
+
+<!-- Agent Access -->
+<section id="agents">
+  <div class="fade-in">
+    <div class="agent-section">
+      <div class="section-label" style="text-align:center;">Coming Soon</div>
+      <h3>Built for AI Agents</h3>
+      <p>
+        rPoly is designed as an intelligence layer that AI agents can plug into.
+        Read signals, subscribe to alerts, and execute trades through our proxy infrastructure.
+      </p>
+      <div class="agent-features">
+        <div class="agent-feat">
+          <div class="agent-feat-icon" style="color:var(--green);">&#9889;</div>
+          <div class="agent-feat-text">Signal API</div>
+          <div style="font-size:9px;color:var(--text-dim);margin-top:2px;">Real-time odds + whale data</div>
+        </div>
+        <div class="agent-feat">
+          <div class="agent-feat-icon" style="color:var(--yellow);">&#128276;</div>
+          <div class="agent-feat-text">Alert Hooks</div>
+          <div style="font-size:9px;color:var(--text-dim);margin-top:2px;">Webhook on pattern triggers</div>
+        </div>
+        <div class="agent-feat">
+          <div class="agent-feat-icon" style="color:var(--blue);">&#9881;</div>
+          <div class="agent-feat-text">Trade Proxy</div>
+          <div style="font-size:9px;color:var(--text-dim);margin-top:2px;">Execute via GNOSIS_SAFE</div>
+        </div>
+      </div>
+      <button class="btn-waitlist" onclick="alert('Coming soon! Follow @rPoly for updates.')">Join Waitlist</button>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer class="footer">
+  <div class="footer-links">
+    <a href="/">Dashboard</a>
+    <a href="/trade">Trade</a>
+    <a href="/learn">Data Lab</a>
+    <a href="/hub">Hub</a>
+  </div>
+  <div class="footer-note" id="footer-status">
+    Powered by Polymarket CLOB + Data API | Collector: --
+  </div>
+</footer>
+
+<script>
+// ===== CLOCK =====
+function updateClock() {
+  const now = new Date();
+  const utcEl = document.getElementById('utc-time');
+  const plEl = document.getElementById('pl-time');
+  if (utcEl) utcEl.textContent = now.toLocaleTimeString('en-GB',{timeZone:'UTC',hour12:false});
+  if (plEl) plEl.textContent = now.toLocaleTimeString('en-GB',{timeZone:'Europe/Warsaw',hour12:false});
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ===== NAV STATUS =====
+async function fetchStatus() {
+  try {
+    const r = await fetch('/api/learn/status');
+    const d = await r.json();
+    const dot = document.getElementById('nav-dot');
+    dot.className = 'dot ' + (d.running ? 'on' : 'off');
+    document.getElementById('nav-status-text').textContent =
+      d.running ? d.stats.odds + ' snapshots' : 'Offline';
+    document.getElementById('badge-snapshots').textContent = (d.stats.odds || 0) + ' snapshots';
+    document.getElementById('badge-trades').textContent = (d.stats.globalTrades || 0) + ' trades';
+    document.getElementById('badge-whales').textContent = (d.stats.whales || 0) + ' whale scans';
+    document.getElementById('footer-status').textContent =
+      'Powered by Polymarket CLOB + Data API | Collector: ' +
+      (d.running ? 'RUNNING' : 'OFFLINE') + ' | ' + (d.stats.odds||0) + ' odds / ' + (d.stats.globalTrades||0) + ' trades today';
+  } catch(e) {}
+}
+
+// ===== LIVE ODDS =====
+async function fetchOdds() {
+  try {
+    const r = await fetch('/api/learn/odds-history?minutes=30');
+    const d = await r.json();
+    if (d.data.length > 0) {
+      const last = d.data[d.data.length - 1];
+      document.getElementById('live-odds').textContent = (last.upPrice * 100).toFixed(1) + '%';
+      document.getElementById('live-odds-market').textContent = last.question || last.market;
+      drawMiniChart(d.data);
+    }
+  } catch(e) {}
+}
+
+function drawMiniChart(data) {
+  const canvas = document.getElementById('mini-odds-chart');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+
+  if (data.length < 2) return;
+
+  const pad = 4;
+  const cw = w - pad * 2;
+  const ch = h - pad * 2;
+  let minY = 0.4, maxY = 0.6;
+  data.forEach(d => {
+    if (d.upPrice < minY) minY = d.upPrice - 0.02;
+    if (d.upPrice > maxY) maxY = d.upPrice + 0.02;
+  });
+
+  // UP line
+  ctx.strokeStyle = '#00ff41';
+  ctx.lineWidth = 1.5;
+  ctx.shadowColor = 'rgba(0,255,65,0.4)';
+  ctx.shadowBlur = 4;
+  ctx.beginPath();
+  data.forEach((d, i) => {
+    const x = pad + (i / (data.length - 1)) * cw;
+    const y = pad + ((maxY - d.upPrice) / (maxY - minY)) * ch;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // DOWN line
+  ctx.strokeStyle = '#ff3333';
+  ctx.shadowColor = 'rgba(255,50,50,0.3)';
+  ctx.beginPath();
+  data.forEach((d, i) => {
+    const x = pad + (i / (data.length - 1)) * cw;
+    const y = pad + ((maxY - d.downPrice) / (maxY - minY)) * ch;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+// ===== LIVE WHALES =====
+async function fetchWhales() {
+  try {
+    const r = await fetch('/api/learn/whales');
+    const d = await r.json();
+    const el = document.getElementById('whale-list');
+    if (!d.latest || !d.latest.holders?.length) {
+      document.getElementById('live-whale-count').textContent = '0';
+      el.innerHTML = '<div style="color:var(--text-dim);font-size:10px;">No whale data yet</div>';
+      return;
+    }
+    const holders = d.latest.holders.slice(0, 5);
+    document.getElementById('live-whale-count').textContent = holders.length;
+    let html = '';
+    holders.forEach((h, i) => {
+      const isUp = h.outcome === 'UP';
+      html += '<div class="live-row">';
+      html += '<span style="color:var(--text-dim);">' + (i+1) + '. ' + (h.name || h.addr) + '</span>';
+      html += '<span style="color:' + (isUp ? 'var(--green)' : 'var(--red)') + ';font-weight:700;">' + h.amount.toFixed(0) + ' ' + h.outcome + '</span>';
+      html += '</div>';
+    });
+    el.innerHTML = html;
+  } catch(e) {}
+}
+
+// ===== LIVE TRADE FLOW =====
+async function fetchTradeFlow() {
+  try {
+    const r = await fetch('/api/learn/global-trades');
+    const d = await r.json();
+    const total = d.stats.total || 0;
+    const buys = d.stats.buys || 0;
+    const sells = d.stats.sells || 0;
+    const buyPct = total > 0 ? Math.round((buys / total) * 100) : 50;
+    const sellPct = 100 - buyPct;
+
+    document.getElementById('live-flow').textContent = total + ' trades';
+    document.getElementById('live-flow-sub').textContent = 'avg ' + d.stats.avgSize + ' shares';
+    document.getElementById('ratio-buy').style.width = buyPct + '%';
+    document.getElementById('ratio-sell').style.width = sellPct + '%';
+    document.getElementById('ratio-buy-pct').textContent = buyPct + '% buy';
+    document.getElementById('ratio-sell-pct').textContent = sellPct + '% sell';
+
+    const feed = document.getElementById('trade-feed');
+    if (d.trades?.length > 0) {
+      const last5 = d.trades.slice(-5).reverse();
+      let html = '';
+      last5.forEach(t => {
+        const isBuy = t.side === 'BUY';
+        html += '<div class="live-row">';
+        html += '<span style="color:' + (isBuy ? 'var(--green)' : 'var(--red)') + ';font-weight:700;font-size:9px;">' + t.side + '</span>';
+        html += '<span style="font-size:9px;">' + (parseFloat(t.size)||0).toFixed(0) + 'sh</span>';
+        html += '<span style="font-size:9px;color:var(--text-dim);">@$' + (parseFloat(t.price)||0).toFixed(2) + '</span>';
+        html += '</div>';
+      });
+      feed.innerHTML = html;
+    }
+  } catch(e) {}
+}
+
+// ===== API TOGGLE =====
+function toggleApi(header) {
+  const body = header.nextElementSibling;
+  const chevron = header.querySelector('.api-chevron');
+  body.classList.toggle('open');
+  chevron.classList.toggle('open');
+}
+
+// ===== FADE IN ON SCROLL =====
+function initFadeIn() {
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+      }
+    });
+  }, { threshold: 0.1 });
+
+  document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+}
+
+// ===== INIT =====
+function init() {
+  initFadeIn();
+  fetchStatus();
+  fetchOdds();
+  fetchWhales();
+  fetchTradeFlow();
+
+  setInterval(fetchStatus, 15000);
+  setInterval(fetchOdds, 30000);
+  setInterval(fetchWhales, 60000);
+  setInterval(fetchTradeFlow, 30000);
+}
+
+init();
+</script>
+</body>
+</html>

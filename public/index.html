@@ -29,6 +29,7 @@
       color:var(--text);
       min-height:100vh;
       line-height:1.5;
+      overflow-y:scroll;
     }
     body::before {
       content:'';position:fixed;top:0;left:0;width:100%;height:100%;
@@ -38,10 +39,20 @@
 
     .wrap { width:100%; padding:12px 24px; }
 
+    /* Nav tabs */
+    .nav-tab {
+      display:inline-block; padding:5px 12px; font-size:10px; font-weight:600;
+      letter-spacing:1px; text-transform:uppercase; text-decoration:none;
+      color:var(--text-dim); border:1px solid transparent;
+      transition:all .2s;
+    }
+    .nav-tab:hover { color:var(--green); background:rgba(0,255,65,0.05); border-color:rgba(0,255,65,0.15); }
+    .nav-tab-active { color:var(--green); border-color:rgba(0,255,65,0.25); background:rgba(0,255,65,0.06); }
+
     /* Header */
     header {
       display:grid; grid-template-columns:1fr auto 1fr; align-items:center;
-      padding:10px 0; border-bottom:1px solid var(--border); margin-bottom:16px;
+      padding:10px 24px; border-bottom:1px solid var(--border); margin-bottom:0;
     }
     header > div:last-child { justify-self:end; }
     .header-clock {
@@ -64,7 +75,7 @@
       font-size:12px; color:rgba(0,255,65,0.3); margin:0 2px;
     }
     .logo { font-size:22px; font-weight:700; color:var(--green); }
-    .logo span { color:var(--text-dim); }
+    .logo span { color:var(--text); }
     .live-dot {
       width:6px;height:6px;border-radius:50%;
       display:inline-block; margin-right:4px;
@@ -264,9 +275,16 @@
   </style>
 </head>
 <body>
-<div class="wrap">
   <header>
-    <div class="logo">r<span>Poly</span>_</div>
+    <div style="display:flex;align-items:center;gap:4px;">
+      <div class="logo">r<span>Poly</span>_</div>
+      <nav style="display:flex;gap:2px;margin-left:12px;">
+        <a href="/" class="nav-tab nav-tab-active">Dashboard</a>
+        <a href="/trade" class="nav-tab">Trade</a>
+        <a href="/learn" class="nav-tab">Data Lab</a>
+        <a href="/hub" class="nav-tab">Hub</a>
+      </nav>
+    </div>
     <div style="text-align:center;">
       <div class="header-clock" id="header-time">
         <span class="clock-time" id="utc-time">--:--:--</span>
@@ -282,19 +300,22 @@
     </div>
   </header>
 
+<div class="wrap">
   <!-- Row 1: BTC + TradingView mini | Balances -->
   <div class="grid" style="grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
     <div class="card" style="grid-column:span 1;">
-      <div class="card-label">BTC/USD</div>
-      <div class="val-lg" id="btc-price">--</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div class="val-lg" id="btc-price">--</div>
+        <span class="val-lg" style="color:var(--green);">$BTC</span>
+      </div>
       <div class="sub" id="btc-change">waiting for websocket...</div>
       <!-- Mini TradingView candlestick -->
       <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:6px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
           <span style="font-size:8px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;">Candles</span>
           <div class="interval-switch" style="gap:1px;">
-            <button class="iv-btn active" data-iv="1s" onclick="switchInterval('1s')" style="padding:2px 6px;font-size:8px;">1s</button>
-            <button class="iv-btn" data-iv="1m" onclick="switchInterval('1m')" style="padding:2px 6px;font-size:8px;">1m</button>
+            <button class="iv-btn" data-iv="1s" onclick="switchInterval('1s')" style="padding:2px 6px;font-size:8px;">1s</button>
+            <button class="iv-btn active" data-iv="1m" onclick="switchInterval('1m')" style="padding:2px 6px;font-size:8px;">1m</button>
             <button class="iv-btn" data-iv="5m" onclick="switchInterval('5m')" style="padding:2px 6px;font-size:8px;">5m</button>
           </div>
         </div>
@@ -302,50 +323,48 @@
       </div>
     </div>
     <!-- Balances & Portfolio -->
-    <div class="card">
-      <div class="card-label">Portfolio</div>
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
-        <span style="font-size:10px;color:var(--text-dim);">Cash</span>
-        <span class="val" id="total-usdc">--</span>
+    <div class="card" style="display:flex;flex-direction:column;">
+      <!-- Cash hero -->
+      <div style="display:flex;align-items:center;justify-content:center;height:56px;margin-top:-10px;">
+        <div class="val-lg" id="total-usdc" style="font-size:32px;">--</div>
       </div>
-      <div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;">
-        <span style="color:var(--text-dim);">Proxy</span>
-        <span style="color:var(--green);" id="proxy-usdc">--</span>
+      <!-- Key metrics grid — same cell padding as Profile -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border-top:1px solid var(--border);border-bottom:1px solid var(--border);">
+        <div style="background:var(--card);padding:10px 8px;text-align:center;">
+          <div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;">Positions</div>
+          <div style="font-size:16px;font-weight:700;color:var(--green);margin-top:2px;" id="positions-value">--</div>
+        </div>
+        <div style="background:var(--card);padding:10px 8px;text-align:center;">
+          <div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;">Volume</div>
+          <div style="font-size:16px;font-weight:700;color:var(--text);margin-top:2px;" id="total-volume">--</div>
+        </div>
+        <div style="background:var(--card);padding:10px 8px;text-align:center;">
+          <div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;">Realized P/L</div>
+          <div style="font-size:16px;font-weight:700;margin-top:2px;" id="realized-pnl">--</div>
+        </div>
+        <div style="background:var(--card);padding:10px 8px;text-align:center;">
+          <div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;">Unrealized</div>
+          <div style="font-size:16px;font-weight:700;margin-top:2px;" id="total-pnl">--</div>
+        </div>
       </div>
-      <div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;">
-        <span style="color:var(--text-dim);">EOA</span>
-        <span style="color:var(--green);" id="eoa-usdc">--</span>
+      <!-- Footer — pushed to bottom -->
+      <div style="margin-top:auto;padding-top:8px;">
+        <div id="proxy-addr" style="font-size:9px;color:var(--green);text-align:center;opacity:0.6;cursor:pointer;transition:opacity .2s;" title="Click to copy full address" onclick="copyProxyAddr()"></div>
       </div>
-      <div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;border-top:1px solid var(--border);margin-top:2px;padding-top:4px;">
-        <span style="color:var(--text-dim);">Positions</span>
-        <span style="color:var(--green);" id="positions-value">--</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;">
-        <span style="color:var(--text-dim);">Volume</span>
-        <span style="color:var(--text);" id="total-volume">--</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;border-top:1px solid var(--border);margin-top:2px;padding-top:4px;">
-        <span style="color:var(--text-dim);">Realized P/L</span>
-        <span id="realized-pnl">--</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;">
-        <span style="color:var(--text-dim);">Unrealized</span>
-        <span id="total-pnl">--</span>
-      </div>
-      <div class="sub" id="proxy-addr" style="margin-top:3px;"></div>
+      <span id="proxy-usdc" style="display:none;"></span>
+      <span id="eoa-usdc" style="display:none;"></span>
     </div>
 
     <!-- Profile / Stats -->
-    <div class="card" id="slot-2">
-      <div class="card-label">Profile</div>
-      <div id="profile-content" style="font-size:11px;">
+    <div class="card" id="slot-2" style="display:flex;flex-direction:column;">
+      <div id="profile-content" style="font-size:11px;flex:1;display:flex;flex-direction:column;">
         <div style="color:var(--text-dim);text-align:center;padding:10px 0;">Loading...</div>
       </div>
     </div>
+    <canvas id="identicon-canvas" width="48" height="48" style="display:none;"></canvas>
 
     <!-- Activity Feed -->
     <div class="card" id="slot-3">
-      <div class="card-label">Activity</div>
       <div id="activity-content" style="font-size:10px;max-height:200px;overflow-y:auto;">
         <div style="color:var(--text-dim);text-align:center;padding:10px 0;">Loading...</div>
       </div>
@@ -387,6 +406,7 @@
       <thead>
         <tr>
           <th>Market</th>
+          <th style="text-align:center;">Price to Beat</th>
           <th style="text-align:center;">End (UTC / PL)</th>
           <th style="text-align:center;">Time Left</th>
           <th>Up / Down</th>
@@ -395,7 +415,7 @@
         </tr>
       </thead>
       <tbody id="markets-body">
-        <tr><td colspan="6" style="text-align:center;color:var(--text-dim);padding:20px;">Loading...</td></tr>
+        <tr><td colspan="7" style="text-align:center;color:var(--text-dim);padding:20px;">Loading...</td></tr>
       </tbody>
     </table>
   </div>
@@ -411,11 +431,44 @@
 const API = '';
 const { createChart, CandlestickSeries } = LightweightCharts;
 
+function generateIdenticon(seed) {
+  const c = document.getElementById('identicon-canvas');
+  const ctx = c.getContext('2d');
+  const size = 48, grid = 5, cell = size / grid;
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = ((hash << 5) - hash + seed.charCodeAt(i)) | 0;
+  const hue = Math.abs(hash) % 360;
+  ctx.fillStyle = '#0a0e14';
+  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = 'hsl(' + hue + ',70%,55%)';
+  for (let x = 0; x < Math.ceil(grid / 2); x++) {
+    for (let y = 0; y < grid; y++) {
+      if (((hash >> ((x * grid + y) % 30)) & 1) === 1) {
+        ctx.fillRect(x * cell, y * cell, cell, cell);
+        ctx.fillRect((grid - 1 - x) * cell, y * cell, cell, cell);
+      }
+    }
+  }
+  return c.toDataURL();
+}
+
+function copyProxyAddr() {
+  const el = document.getElementById('proxy-addr');
+  const full = el.dataset.full;
+  if (!full) return;
+  navigator.clipboard.writeText(full).then(() => {
+    const orig = el.textContent;
+    el.textContent = 'copied!';
+    el.style.opacity = '1';
+    setTimeout(() => { el.textContent = orig; el.style.opacity = '0.6'; }, 1200);
+  });
+}
+
 let chart = null;
 let candleSeries = null;
 let lastCandle = null;
 let btcWs = null;
-let currentInterval = '1s';
+let currentInterval = '1m';
 let chartRefreshTimer = null;
 let dashData = null;
 let lastBtcPrice = 0;
@@ -449,7 +502,7 @@ function initChart() {
     timeScale: {
       borderColor: '#1a2a1a',
       timeVisible: true,
-      secondsVisible: true,
+      secondsVisible: false,
     },
     handleScroll: true,
     handleScale: true,
@@ -701,7 +754,9 @@ function renderDashboard(d) {
 
   document.getElementById('proxy-usdc').textContent = '$' + (b.proxy?.usdc || 0).toFixed(2);
   const pa = b.proxy?.address || '';
-  document.getElementById('proxy-addr').textContent = pa.length > 10 ? pa.slice(0,6) + '...' + pa.slice(-4) : 'not set';
+  const addrEl = document.getElementById('proxy-addr');
+  addrEl.textContent = pa.length > 10 ? pa.slice(0,6) + '...' + pa.slice(-4) : 'not set';
+  addrEl.dataset.full = pa;
   document.getElementById('eoa-usdc').textContent = '$' + (b.eoa?.usdc || 0).toFixed(2);
   document.getElementById('total-usdc').textContent = '$' + (b.totalUsdc || 0).toFixed(2);
 
@@ -736,8 +791,19 @@ function renderMarketAnalysis(d) {
 
   let html = '';
 
-  // Market name
+  // Market name + price to beat
   html += '<div style="font-size:9px;color:var(--text-dim);text-align:center;line-height:1.3;">' + m.question + '</div>';
+  if (m.priceToBeat) {
+    const btcNow = d.btc?.price || 0;
+    const diff = btcNow - m.priceToBeat;
+    const isUp = diff >= 0;
+    const diffColor = isUp ? 'var(--green)' : 'var(--red)';
+    const arrow = isUp ? '▲' : '▼';
+    html += '<div style="display:flex;justify-content:center;gap:12px;margin:4px 0;font-size:10px;">';
+    html += '<span style="color:var(--yellow);">Beat: $' + m.priceToBeat.toLocaleString('en',{minimumFractionDigits:2}) + '</span>';
+    html += '<span style="color:' + diffColor + ';">' + arrow + ' ' + (isUp ? '+' : '') + '$' + Math.abs(diff).toFixed(2) + '</span>';
+    html += '</div>';
+  }
 
   // Confidence gauge
   html += '<div class="conf-gauge">';
@@ -877,7 +943,7 @@ async function loadMarkets() {
     marketsData = data.markets || [];
 
     if (!marketsData.length) {
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-dim);padding:20px;">No markets</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-dim);padding:20px;">No markets</td></tr>';
       return;
     }
 
@@ -896,8 +962,12 @@ async function loadMarkets() {
           '<span style="color:var(--text-dim);margin:0 3px;">/</span>' +
           '<span style="color:var(--green);">' + plStr + '</span>';
       }
+      const ptbCol = m.priceToBeat
+        ? '<span style="color:var(--yellow);font-weight:700;">$' + m.priceToBeat.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2}) + '</span>'
+        : '<span style="color:var(--text-dim);">--</span>';
       return '<tr>' +
         '<td style="font-weight:500;">' + m.question + '</td>' +
+        '<td style="text-align:center;white-space:nowrap;font-size:11px;">' + ptbCol + '</td>' +
         '<td style="text-align:center;white-space:nowrap;font-size:11px;">' + timeCol + '</td>' +
         '<td class="countdown-cell" data-q="' + q + '" style="text-align:center;">--</td>' +
         '<td><div class="prob-bar"><div class="prob-up" style="width:' + upPct + '%">' + upPct + '</div><div class="prob-down" style="width:' + downPct + '%">' + downPct + '</div></div></td>' +
@@ -1075,28 +1145,50 @@ async function loadProfile() {
       const joined = d.profile.createdAt ? new Date(d.profile.createdAt).toLocaleDateString('en', { month: 'short', year: 'numeric' }) : '?';
       const wr = d.winRate || 0;
       const wrColor = wr >= 60 ? 'var(--green)' : wr >= 40 ? 'var(--yellow)' : 'var(--red)';
+      const totalPL = rpnl + upnl;
+      const plColor = totalPL >= 0 ? 'var(--green)' : 'var(--red)';
+      const avatarUrl = d.profile.image || generateIdenticon(d.profile.name || 'anon');
+
       pc.innerHTML =
-        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
-          '<span style="font-weight:700;font-size:14px;color:var(--green);">' + d.profile.name + '</span>' +
-          (d.profile.verified ? '<span style="color:var(--green);font-size:10px;">&#10003;</span>' : '') +
+        // Header: avatar + name — fixed 56px to match Portfolio hero
+        '<div style="display:flex;align-items:center;gap:10px;height:56px;margin-top:-6px;">' +
+          '<img src="' + avatarUrl + '" style="width:40px;height:40px;border-radius:50%;border:2px solid var(--green);background:var(--bg);" onerror="this.style.display=\'none\'">' +
+          '<div>' +
+            '<div style="font-weight:700;font-size:15px;color:var(--green);">' + d.profile.name +
+              (d.profile.verified ? ' <span style="font-size:10px;">&#10003;</span>' : '') +
+            '</div>' +
+            '<div style="font-size:9px;color:var(--text-dim);">Joined ' + joined + '</div>' +
+          '</div>' +
         '</div>' +
-        '<div style="display:flex;justify-content:space-between;padding:2px 0;">' +
-          '<span style="color:var(--text-dim);">Joined</span><span>' + joined + '</span></div>' +
-        '<div style="display:flex;justify-content:space-between;padding:2px 0;">' +
-          '<span style="color:var(--text-dim);">Markets</span><span style="color:var(--green);">' + (d.marketsTraded || 0) + '</span></div>' +
-        '<div style="display:flex;justify-content:space-between;padding:2px 0;">' +
-          '<span style="color:var(--text-dim);">Record</span>' +
-          '<span><span style="color:var(--green);">' + (d.wins || 0) + 'W</span>' +
-          ' <span style="color:var(--red);">' + (d.losses || 0) + 'L</span>' +
-          ' <span style="color:var(--text-dim);">(' + (d.positions?.length || 0) + ' open)</span></span></div>' +
-        '<div style="display:flex;justify-content:space-between;padding:2px 0;">' +
-          '<span style="color:var(--text-dim);">Win Rate</span><span style="color:' + wrColor + ';">' + wr + '%</span></div>' +
-        '<div style="display:flex;justify-content:space-between;padding:2px 0;">' +
-          '<span style="color:var(--text-dim);">Best Trade</span><span style="color:var(--green);">+$' + (d.biggestWin || 0).toFixed(2) + '</span></div>' +
-        '<div style="display:flex;justify-content:space-between;padding:2px 0;">' +
-          '<span style="color:var(--text-dim);">Total P/L</span><span style="color:' +
-            ((rpnl + upnl) >= 0 ? 'var(--green)' : 'var(--red)') + ';">' +
-            ((rpnl + upnl) >= 0 ? '+' : '') + '$' + (rpnl + upnl).toFixed(2) + '</span></div>';
+        // Stats grid 2x2 — same padding as Portfolio grid
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border-top:1px solid var(--border);border-bottom:1px solid var(--border);">' +
+          '<div style="background:var(--card);padding:10px 8px;text-align:center;">' +
+            '<div style="font-size:9px;color:var(--text-dim);letter-spacing:1px;">WIN RATE</div>' +
+            '<div style="font-size:18px;font-weight:700;color:' + wrColor + ';margin-top:2px;">' + wr + '%</div>' +
+          '</div>' +
+          '<div style="background:var(--card);padding:10px 8px;text-align:center;">' +
+            '<div style="font-size:9px;color:var(--text-dim);letter-spacing:1px;">RECORD</div>' +
+            '<div style="font-size:16px;font-weight:700;margin-top:2px;">' +
+              '<span style="color:var(--green);">' + (d.wins || 0) + 'W</span>' +
+              '<span style="color:var(--text-dim);margin:0 3px;">/</span>' +
+              '<span style="color:var(--red);">' + (d.losses || 0) + 'L</span>' +
+            '</div>' +
+          '</div>' +
+          '<div style="background:var(--card);padding:10px 8px;text-align:center;">' +
+            '<div style="font-size:9px;color:var(--text-dim);letter-spacing:1px;">BEST TRADE</div>' +
+            '<div style="font-size:16px;font-weight:700;color:var(--green);margin-top:2px;">+$' + (d.biggestWin || 0).toFixed(2) + '</div>' +
+          '</div>' +
+          '<div style="background:var(--card);padding:10px 8px;text-align:center;">' +
+            '<div style="font-size:9px;color:var(--text-dim);letter-spacing:1px;">TOTAL P/L</div>' +
+            '<div style="font-size:16px;font-weight:700;color:' + plColor + ';margin-top:2px;">' +
+              (totalPL >= 0 ? '+' : '') + '$' + totalPL.toFixed(2) + '</div>' +
+          '</div>' +
+        '</div>' +
+        // Footer — pushed to bottom via margin-top:auto
+        '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 4px 0;margin-top:auto;">' +
+          '<span style="font-size:10px;color:var(--green);opacity:0.7;">' + (d.marketsTraded || 0) + ' markets traded</span>' +
+          '<span style="font-size:10px;color:var(--yellow);opacity:0.8;">' + (d.positions?.length || 0) + ' open</span>' +
+        '</div>';
     } else {
       pc.innerHTML = '<div style="color:var(--text-dim);">No profile data</div>';
     }

@@ -3,6 +3,7 @@ const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
 const path = require("path");
+const fs = require("fs");
 
 let Wallet, providers, Contract;
 try {
@@ -103,6 +104,24 @@ async function findActive5mMarket() {
         const tokenIds = JSON.parse(m.clobTokenIds || "[]");
         const outcomes = JSON.parse(m.outcomes || "[]");
         const prices = JSON.parse(m.outcomePrices || "[]");
+        const eventStart = m.eventStartTime || null;
+        let priceToBeat = null;
+        if (eventStart) {
+          try {
+            const startMs = new Date(eventStart).getTime();
+            const kRes = await axios.get("https://api.binance.com/api/v3/klines", {
+              params: { symbol: "BTCUSDT", interval: "1m", startTime: startMs, limit: 1 },
+              timeout: 5000,
+            });
+            if (kRes.data?.length > 0) {
+              priceToBeat = parseFloat(kRes.data[0][1]);
+              console.log("[priceToBeat] $" + priceToBeat + " from " + eventStart);
+            }
+          } catch (e) {
+            console.log("[priceToBeat] error:", e.message);
+          }
+        }
+
         return {
           id: m.id,
           conditionId: m.conditionId,
@@ -117,6 +136,8 @@ async function findActive5mMarket() {
           volume: m.volumeNum || m.volume || 0,
           liquidity: m.liquidityNum || m.liquidity || 0,
           endDate: m.endDate,
+          eventStartTime: eventStart,
+          priceToBeat,
         };
       }
     } catch (e) { /* next slot */ }
@@ -313,6 +334,20 @@ app.get("/api/markets/5m", async (req, res) => {
           const m = r.data[0];
           const prices = JSON.parse(m.outcomePrices || "[]");
           const tokenIds = m.clobTokenIds ? JSON.parse(m.clobTokenIds) : [];
+          let ptb = null;
+          const evStart = m.eventStartTime || null;
+          if (evStart) {
+            try {
+              const sMs = new Date(evStart).getTime();
+              if (sMs <= Date.now()) {
+                const kr = await axios.get("https://api.binance.com/api/v3/klines", {
+                  params: { symbol: "BTCUSDT", interval: "1m", startTime: sMs, limit: 1 },
+                  timeout: 3000,
+                });
+                if (kr.data?.length > 0) ptb = parseFloat(kr.data[0][1]);
+              }
+            } catch (e) {}
+          }
           markets.push({
             question: m.question,
             slug: m.slug,
@@ -322,6 +357,8 @@ app.get("/api/markets/5m", async (req, res) => {
             volume: m.volumeNum || 0,
             resolved: m.resolved || false,
             endDate: m.endDate,
+            eventStartTime: evStart,
+            priceToBeat: ptb,
             conditionId: m.conditionId,
             tokenIds,
           });
@@ -457,6 +494,8 @@ app.post("/api/trade", requireAuth, async (req, res) => {
 
     console.log("[trade] result:", result);
 
+    logTrade({ action: "BUY", side, size: orderSize, price: orderPrice, market: market.question, result: result.success ? "OK" : (result.errorMsg || "FAIL") });
+
     res.json({
       success: result.success || false,
       orderID: result.orderID,
@@ -475,6 +514,145 @@ app.post("/api/trade", requireAuth, async (req, res) => {
   }
 });
 
+// Sell (market sell existing position)
+app.post("/api/sell", requireAuth, async (req, res) => {
+  if (IS_READONLY) return res.status(403).json({ error: "Read-only mode. Trading disabled." });
+  if (!HAS_TRADING) return res.status(400).json({ error: "Trading keys not configured" });
+  try {
+    const { side, size, price } = req.body;
+    if (!side || !size) return res.status(400).json({ error: "Missing side or size" });
+
+    const market = await findActive5mMarket();
+    if (!market) return res.status(400).json({ error: "No active 5m market" });
+
+    const tokenId = side === "UP" ? market.upTokenId : market.downTokenId;
+    const client = getClobClient();
+    if (!client) return res.status(500).json({ error: "ClobClient not available" });
+
+    let tickSize = "0.01";
+    try { tickSize = (await client.getTickSize(tokenId)) || "0.01"; } catch (e) {}
+
+    let orderPrice = price;
+    if (!orderPrice) {
+      const book = await client.getOrderBook(tokenId);
+      const bestBid = book.bids?.length ? book.bids[0] : null;
+      if (!bestBid) return res.status(400).json({ error: "No bids in orderbook" });
+      orderPrice = parseFloat(bestBid.price);
+    }
+
+    const orderSize = Math.max(1, parseInt(size) || 1);
+    console.log(`[sell] ${side} x${orderSize} @ $${orderPrice} on ${market.question}`);
+
+    const result = await client.createAndPostOrder(
+      { tokenID: tokenId, price: orderPrice, side: "SELL", size: orderSize, feeRateBps: 1000, nonce: 0 },
+      { tickSize, negRisk: market.negRisk }
+    );
+
+    logTrade({ action: "SELL", side, size: orderSize, price: orderPrice, market: market.question, result: result.success ? "OK" : (result.errorMsg || "FAIL") });
+
+    res.json({
+      success: result.success || false,
+      orderID: result.orderID,
+      status: result.status,
+      market: market.question,
+      side,
+      size: orderSize,
+      price: orderPrice,
+      revenue: (orderSize * orderPrice).toFixed(2),
+      tx: result.transactionsHashes?.[0] || null,
+      error: result.errorMsg || result.error || null,
+    });
+  } catch (e) {
+    console.error("[sell] error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Sell limit (take-profit / stop-loss)
+app.post("/api/sell-limit", requireAuth, async (req, res) => {
+  if (IS_READONLY) return res.status(403).json({ error: "Read-only mode. Trading disabled." });
+  if (!HAS_TRADING) return res.status(400).json({ error: "Trading keys not configured" });
+  try {
+    const { side, size, price, expireSeconds } = req.body;
+    if (!side || !size || !price) return res.status(400).json({ error: "Missing side, size, or price" });
+
+    const market = await findActive5mMarket();
+    if (!market) return res.status(400).json({ error: "No active 5m market" });
+
+    const tokenId = side === "UP" ? market.upTokenId : market.downTokenId;
+    const client = getClobClient();
+    if (!client) return res.status(500).json({ error: "ClobClient not available" });
+
+    let tickSize = "0.01";
+    try { tickSize = (await client.getTickSize(tokenId)) || "0.01"; } catch (e) {}
+
+    const orderSize = Math.max(1, parseInt(size) || 1);
+    const orderPrice = parseFloat(price);
+    const expSec = parseInt(expireSeconds) || 300;
+    const expiration = Math.floor(Date.now() / 1000) + 60 + expSec;
+
+    console.log(`[sell-limit] ${side} x${orderSize} @ $${orderPrice} exp=${expSec}s on ${market.question}`);
+
+    const result = await client.createAndPostOrder(
+      { tokenID: tokenId, price: orderPrice, side: "SELL", size: orderSize, feeRateBps: 1000, nonce: 0, expiration },
+      { tickSize, negRisk: market.negRisk }
+    );
+
+    logTrade({ action: "SELL-LIMIT", side, size: orderSize, price: orderPrice, market: market.question, result: result.success ? "OK" : (result.errorMsg || "FAIL") });
+
+    res.json({
+      success: result.success || false,
+      orderID: result.orderID,
+      status: result.status,
+      market: market.question,
+      side,
+      size: orderSize,
+      price: orderPrice,
+      expiresIn: expSec + "s",
+      error: result.errorMsg || result.error || null,
+    });
+  } catch (e) {
+    console.error("[sell-limit] error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Open orders
+app.get("/api/open-orders", async (req, res) => {
+  try {
+    const client = getClobClient();
+    if (!client) return res.json({ orders: [] });
+    const orders = await client.getOpenOrders();
+    res.json({ orders: (orders || []).map(o => ({
+      id: o.id,
+      side: o.side,
+      price: o.price,
+      size: o.original_size || o.size,
+      filledSize: o.size_matched || 0,
+      status: o.status,
+      tokenId: o.asset_id,
+      created: o.created_at,
+      expiration: o.expiration,
+    })) });
+  } catch (e) {
+    res.json({ orders: [], error: e.message });
+  }
+});
+
+// Cancel single order
+app.post("/api/cancel-order/:id", requireAuth, async (req, res) => {
+  if (IS_READONLY) return res.status(403).json({ error: "Read-only mode." });
+  if (!HAS_TRADING) return res.status(400).json({ error: "Trading keys not configured" });
+  try {
+    const client = getClobClient();
+    if (!client) return res.status(500).json({ error: "ClobClient not available" });
+    const result = await client.cancelOrder({ orderID: req.params.id });
+    res.json({ success: true, ...result });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Cancel all orders
 app.post("/api/cancel-all", requireAuth, async (req, res) => {
   if (IS_READONLY) return res.status(403).json({ error: "Read-only mode. Trading disabled." });
@@ -487,6 +665,59 @@ app.post("/api/cancel-all", requireAuth, async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ===== BOT MESSAGE TICKER =====
+let botMessages = [];
+const BOT_MSG_FILE = path.join(__dirname, "trades", "bot-messages.json");
+
+function loadBotMessages() {
+  try {
+    if (fs.existsSync(BOT_MSG_FILE)) botMessages = JSON.parse(fs.readFileSync(BOT_MSG_FILE, "utf8"));
+  } catch (e) { botMessages = []; }
+}
+loadBotMessages();
+
+function saveBotMessages() {
+  try { fs.writeFileSync(BOT_MSG_FILE, JSON.stringify(botMessages.slice(-50))); } catch (e) {}
+}
+
+app.post("/api/bot-message", requireAuth, async (req, res) => {
+  const { text, type } = req.body;
+  if (!text) return res.status(400).json({ error: "Missing text" });
+  const msg = { text, type: type || "info", ts: Date.now() };
+  botMessages.push(msg);
+  if (botMessages.length > 50) botMessages = botMessages.slice(-50);
+  saveBotMessages();
+  res.json({ success: true, msg });
+});
+
+app.get("/api/bot-messages", (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+  res.json({ messages: botMessages.slice(-limit) });
+});
+
+// ===== TRADE LOG =====
+let tradeLog = [];
+const TRADE_LOG_FILE = path.join(__dirname, "trades", "trade-log.json");
+
+function loadTradeLog() {
+  try {
+    if (fs.existsSync(TRADE_LOG_FILE)) tradeLog = JSON.parse(fs.readFileSync(TRADE_LOG_FILE, "utf8"));
+  } catch (e) { tradeLog = []; }
+}
+loadTradeLog();
+
+function logTrade(entry) {
+  entry.ts = Date.now();
+  tradeLog.push(entry);
+  if (tradeLog.length > 100) tradeLog = tradeLog.slice(-100);
+  try { fs.writeFileSync(TRADE_LOG_FILE, JSON.stringify(tradeLog)); } catch (e) {}
+}
+
+app.get("/api/trade-log", (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 30, 100);
+  res.json({ trades: tradeLog.slice(-limit).reverse() });
 });
 
 // BTC chart - supports ?interval=1s|1m|5m|15m
@@ -512,8 +743,257 @@ app.get("/api/chart", async (req, res) => {
   }
 });
 
+// ===== DATA COLLECTOR =====
+const TRADES_DIR = path.join(__dirname, "trades");
+
+function todayFile(prefix) {
+  const d = new Date().toISOString().slice(0, 10);
+  return path.join(TRADES_DIR, `${prefix}-${d}.json`);
+}
+
+function appendToFile(filepath, entry) {
+  try {
+    let arr = [];
+    if (fs.existsSync(filepath)) {
+      try { arr = JSON.parse(fs.readFileSync(filepath, "utf8")); } catch (e) { arr = []; }
+    }
+    arr.push(entry);
+    fs.writeFileSync(filepath, JSON.stringify(arr, null, 0));
+  } catch (e) {
+    console.warn("[collector] write error:", e.message);
+  }
+}
+
+function readJsonFile(filepath) {
+  try {
+    if (fs.existsSync(filepath)) return JSON.parse(fs.readFileSync(filepath, "utf8"));
+  } catch (e) {}
+  return [];
+}
+
+const collectorState = { running: false, stats: { odds: 0, globalTrades: 0, whales: 0, lastMarket: null } };
+
+async function collectOddsSnapshot() {
+  try {
+    const market = await findActive5mMarket().catch(() => null);
+    if (!market) return;
+    collectorState.stats.lastMarket = market.slug;
+
+    const mid = await axios.get(CLOB_API + "/midpoint", { params: { token_id: market.upTokenId }, timeout: 3000 }).catch(() => null);
+
+    appendToFile(todayFile("odds"), {
+      t: Date.now(),
+      market: market.slug,
+      question: market.question,
+      upPrice: market.upPrice,
+      downPrice: market.downPrice,
+      midpoint: mid?.data?.mid ? parseFloat(mid.data.mid) : null,
+      volume: market.volume,
+      endDate: market.endDate,
+    });
+    collectorState.stats.odds++;
+  } catch (e) {
+    console.warn("[collector] odds error:", e.message);
+  }
+}
+
+async function collectGlobalTrades() {
+  try {
+    const market = await findActive5mMarket().catch(() => null);
+    if (!market?.conditionId) return;
+
+    const DATA_API = "https://data-api.polymarket.com";
+    const res = await axios.get(`${DATA_API}/trades`, {
+      params: { market: market.conditionId, limit: 20 },
+      timeout: 5000,
+    }).catch(() => null);
+
+    if (res?.data?.length > 0) {
+      const trades = res.data.map(t => ({
+        t: Date.now(),
+        market: market.slug,
+        maker: t.maker?.slice(0, 8),
+        side: t.side,
+        size: t.size,
+        price: t.price,
+        outcome: t.outcome,
+        timestamp: t.timestamp,
+      }));
+      const file = todayFile("global");
+      let existing = readJsonFile(file);
+      const seen = new Set(existing.map(t => t.timestamp + '-' + t.size + '-' + t.side));
+      const newTrades = trades.filter(t => !seen.has(t.timestamp + '-' + t.size + '-' + t.side));
+      if (newTrades.length > 0) {
+        existing = existing.concat(newTrades);
+        fs.writeFileSync(file, JSON.stringify(existing, null, 0));
+        collectorState.stats.globalTrades += newTrades.length;
+      }
+    }
+  } catch (e) {
+    console.warn("[collector] global trades error:", e.message);
+  }
+}
+
+async function collectWhalePositions() {
+  try {
+    const market = await findActive5mMarket().catch(() => null);
+    if (!market?.conditionId) return;
+
+    const DATA_API = "https://data-api.polymarket.com";
+    const res = await axios.get(`${DATA_API}/holders`, {
+      params: { market: market.conditionId, limit: 10 },
+      timeout: 5000,
+    }).catch(() => null);
+
+    if (res?.data?.length > 0) {
+      const holders = res.data.flatMap(token =>
+        (token.holders || []).map(h => ({
+          addr: h.proxyWallet?.slice(0, 10),
+          name: h.pseudonym || h.name || null,
+          amount: h.amount,
+          outcome: token.token === market.upTokenId ? "UP" : "DOWN",
+        }))
+      );
+      if (holders.length > 0) {
+        appendToFile(todayFile("whales"), {
+          t: Date.now(),
+          market: market.slug,
+          holders: holders.slice(0, 10),
+        });
+        collectorState.stats.whales++;
+      }
+    }
+  } catch (e) {
+    console.warn("[collector] whales error:", e.message);
+  }
+}
+
+let patternsCache = null;
+
+function rebuildPatterns() {
+  try {
+    const files = fs.readdirSync(TRADES_DIR).filter(f => f.startsWith("odds-") && f.endsWith(".json"));
+    let allOdds = [];
+    files.forEach(f => {
+      const data = readJsonFile(path.join(TRADES_DIR, f));
+      if (Array.isArray(data)) allOdds = allOdds.concat(data);
+    });
+
+    const buckets = { "40-45": { w: 0, l: 0 }, "45-50": { w: 0, l: 0 }, "50-55": { w: 0, l: 0 }, "55-60": { w: 0, l: 0 }, "60+": { w: 0, l: 0 } };
+    const marketSnapshots = {};
+    allOdds.forEach(s => {
+      if (!marketSnapshots[s.market]) marketSnapshots[s.market] = [];
+      marketSnapshots[s.market].push(s);
+    });
+
+    patternsCache = {
+      totalSnapshots: allOdds.length,
+      totalMarkets: Object.keys(marketSnapshots).length,
+      uniqueDays: files.length,
+      oddsBuckets: buckets,
+      lastUpdated: Date.now(),
+    };
+
+    const pFile = path.join(TRADES_DIR, "patterns.json");
+    fs.writeFileSync(pFile, JSON.stringify(patternsCache, null, 2));
+  } catch (e) {
+    console.warn("[collector] patterns rebuild error:", e.message);
+  }
+}
+
+function startDataCollector() {
+  collectorState.running = true;
+  console.log("  Collector: STARTED");
+  if (!fs.existsSync(TRADES_DIR)) fs.mkdirSync(TRADES_DIR, { recursive: true });
+
+  collectOddsSnapshot();
+  setTimeout(() => collectGlobalTrades(), 5000);
+  setTimeout(() => collectWhalePositions(), 10000);
+  setTimeout(() => rebuildPatterns(), 15000);
+
+  setInterval(collectOddsSnapshot, 30000);
+  setInterval(collectGlobalTrades, 30000);
+  setInterval(collectWhalePositions, 60000);
+  setInterval(rebuildPatterns, 300000);
+}
+
+// ===== LEARN API =====
+
+app.get("/api/learn/status", (req, res) => {
+  res.json({
+    running: collectorState.running,
+    stats: collectorState.stats,
+    timestamp: Date.now(),
+  });
+});
+
+app.get("/api/learn/odds-history", (req, res) => {
+  const market = req.query.market || null;
+  const minutes = parseInt(req.query.minutes) || 60;
+  const cutoff = Date.now() - minutes * 60000;
+
+  const files = fs.readdirSync(TRADES_DIR).filter(f => f.startsWith("odds-") && f.endsWith(".json")).sort().reverse().slice(0, 3);
+  let all = [];
+  files.forEach(f => {
+    const data = readJsonFile(path.join(TRADES_DIR, f));
+    if (Array.isArray(data)) all = all.concat(data);
+  });
+
+  let filtered = all.filter(s => s.t >= cutoff);
+  if (market && market !== "current") filtered = filtered.filter(s => s.market === market);
+  filtered.sort((a, b) => a.t - b.t);
+
+  res.json({ count: filtered.length, data: filtered.slice(-500) });
+});
+
+app.get("/api/learn/whales", async (req, res) => {
+  const file = todayFile("whales");
+  const data = readJsonFile(file);
+  const latest = data.length > 0 ? data[data.length - 1] : null;
+  res.json({
+    latest,
+    totalScans: data.length,
+    timestamp: Date.now(),
+  });
+});
+
+app.get("/api/learn/global-trades", (req, res) => {
+  const file = todayFile("global");
+  const data = readJsonFile(file);
+  const last50 = data.slice(-50);
+
+  let buyCount = 0, sellCount = 0, totalSize = 0;
+  data.forEach(t => {
+    if (t.side === "BUY") buyCount++; else sellCount++;
+    totalSize += parseFloat(t.size) || 0;
+  });
+
+  res.json({
+    trades: last50,
+    stats: { total: data.length, buys: buyCount, sells: sellCount, avgSize: data.length > 0 ? (totalSize / data.length).toFixed(2) : 0 },
+    timestamp: Date.now(),
+  });
+});
+
+app.get("/api/learn/patterns", (req, res) => {
+  if (patternsCache) return res.json(patternsCache);
+  const pFile = path.join(TRADES_DIR, "patterns.json");
+  const data = readJsonFile(pFile);
+  res.json(data.length === undefined ? data : { totalSnapshots: 0, totalMarkets: 0, lastUpdated: null });
+});
+
+app.get("/api/learn/trades", (req, res) => {
+  const date = req.query.date || new Date().toISOString().slice(0, 10);
+  const file = path.join(TRADES_DIR, `my-trades-${date}.json`);
+  const data = readJsonFile(file);
+  res.json({ count: data.length, trades: data });
+});
+
 // ===== PAGES =====
 app.get("/", (req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
+app.get("/trade", (req, res) => res.sendFile(path.join(__dirname, "public", "trade.html")));
+app.get("/hub", (req, res) => res.sendFile(path.join(__dirname, "public", "hub.html")));
+app.get("/learn", (req, res) => res.sendFile(path.join(__dirname, "public", "learn.html")));
 app.get("/markets", (req, res) => res.sendFile(path.join(__dirname, "public", "markets.html")));
 
 // ===== START =====
@@ -533,6 +1013,9 @@ if (!process.env.VERCEL) {
     console.log("  Trading: " + (IS_READONLY ? "DISABLED (readonly)" : HAS_TRADING ? "LIVE (signatureType=2 GNOSIS_SAFE)" : "NO KEYS"));
     console.log("  Auth:    " + (IS_READONLY ? "NOT NEEDED (readonly)" : HAS_AUTH ? "ENABLED" : "OPEN"));
     console.log("");
+
+    // Start data collector in live mode
+    startDataCollector();
   });
 }
 

@@ -10,12 +10,27 @@
       "use": "@vercel/static"
     },
     {
+      "src": "public/trade.html",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "public/hub.html",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "public/learn.html",
+      "use": "@vercel/static"
+    },
+    {
       "src": "public/markets.html",
       "use": "@vercel/static"
     }
   ],
   "routes": [
     { "src": "/api/(.*)", "dest": "/server.js" },
+    { "src": "/trade", "dest": "/public/trade.html" },
+    { "src": "/hub", "dest": "/public/hub.html" },
+    { "src": "/learn", "dest": "/public/learn.html" },
     { "src": "/index.html", "dest": "/public/index.html" },
     { "src": "/markets.html", "dest": "/public/markets.html" },
     { "src": "/markets", "dest": "/public/markets.html" },
