@@ -25,6 +25,12 @@ scripts/approve-and-trade.js
 memory/
 brain/
 
+# Autonomous agent (local only)
+autonomous-agent/
+
+# Temp files
+tmp/
+
 # Collected data (local only)
 trades/*.json
 !trades/README.md

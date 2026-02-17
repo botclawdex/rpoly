@@ -99,8 +99,9 @@ function getClobClient() {
 
 function getCurrent5mSlots() {
   const now = Math.floor(Date.now() / 1000);
-  const next = Math.ceil(now / 300) * 300;
-  return [next, next + 300, next + 600, next + 900];
+  const current = Math.floor(now / 300) * 300;  // Current slot (may be active NOW)
+  const next = current + 300;
+  return [current, next, next + 300, next + 600];
 }
 
 async function findActive5mMarket() {
@@ -236,11 +237,27 @@ app.post("/api/auth", (req, res) => {
 app.get("/api/dashboard", async (req, res) => {
   console.log("[dashboard] fetching...");
 
-  const [balances, btc, market] = await Promise.all([
+  const [balances, btc, market, positionsRes] = await Promise.all([
     getBalances().catch(() => ({ eoa: { usdc: 0, matic: 0 }, proxy: { usdc: 0 }, totalUsdc: 0 })),
     getBTCPrice().catch(() => ({ price: 0, change24h: 0 })),
     findActive5mMarket().catch(() => null),
+    axios.get("https://data-api.polymarket.com/positions", {
+      params: { user: PROXY_ADDRESS, limit: 20, sortBy: "CASHPNL", sortDirection: "DESC" },
+      timeout: 5000,
+    }).catch(() => null),
   ]);
+
+  // Parse open positions for agent's pre-close sell logic
+  const positions = (positionsRes?.data || []).map(p => ({
+    conditionId: p.conditionId,
+    title: p.title,
+    side: p.outcome,  // "Yes" or "No" -> maps to UP/DOWN
+    size: p.size,
+    avgPrice: p.avgPrice,
+    curPrice: p.curPrice,
+    currentValue: p.currentValue,
+    cashPnl: p.cashPnl,
+  }));
 
   let orderbook = null;
   let openOrders = [];
@@ -307,6 +324,7 @@ app.get("/api/dashboard", async (req, res) => {
     balances,
     btc,
     market,
+    positions,
     orderbook: obData,
     signal,
     openOrders,
@@ -474,7 +492,7 @@ app.post("/api/trade", requireAuth, async (req, res) => {
   if (!HAS_TRADING) return res.status(400).json({ error: "Trading keys not configured" });
 
   try {
-    const { side, size, price } = req.body;
+    const { side, size, price, orderType } = req.body;
     if (!side || !size) return res.status(400).json({ error: "Missing side or size" });
 
     const market = await findActive5mMarket();
@@ -487,50 +505,86 @@ app.post("/api/trade", requireAuth, async (req, res) => {
     let tickSize = "0.01";
     try { tickSize = (await client.getTickSize(tokenId)) || "0.01"; } catch (e) {}
 
-    let orderPrice = price;
-    if (!orderPrice) {
-      const book = await client.getOrderBook(tokenId);
-      const bestAsk = book.asks?.length ? book.asks[book.asks.length - 1] : null;
-      if (!bestAsk) return res.status(400).json({ error: "No asks in orderbook" });
-      orderPrice = parseFloat(bestAsk.price);
+    // For market orders (FOK): amount = dollars to spend
+    // For limit orders (GTC): need price + size
+    const useMarketOrder = !price && orderType !== "GTC";
+    const amountUsd = Math.max(1, parseFloat(size) || 5);
+
+    if (useMarketOrder) {
+      // FOK MARKET ORDER — instant fill or cancel entirely
+      console.log(`[trade] MARKET BUY ${side} $${amountUsd} on ${market.question}`);
+
+      const result = await client.createAndPostMarketOrder(
+        { tokenID: tokenId, amount: amountUsd, side: "BUY", feeRateBps: 1000, nonce: 0 },
+        { tickSize, negRisk: market.negRisk },
+        "FOK"
+      );
+
+      console.log("[trade] FOK result:", JSON.stringify(result));
+
+      logTrade({ action: "BUY_MKT", side, amount: amountUsd, market: market.question, result: result.success ? "OK" : (result.errorMsg || "FAIL") });
+
+      res.json({
+        success: result.success || false,
+        orderID: result.orderID,
+        status: result.status,
+        market: market.question,
+        side,
+        size: amountUsd,
+        price: null,
+        cost: amountUsd.toFixed(2),
+        type: "FOK",
+        tx: result.transactionsHashes?.[0] || null,
+        error: result.errorMsg || result.error || null,
+      });
+    } else {
+      // GTC LIMIT ORDER — rests on book
+      let orderPrice = parseFloat(price);
+      if (!orderPrice) {
+        const book = await client.getOrderBook(tokenId);
+        const bestAsk = book.asks?.length ? book.asks[book.asks.length - 1] : null;
+        if (!bestAsk) return res.status(400).json({ error: "No asks in orderbook" });
+        orderPrice = parseFloat(bestAsk.price);
+      }
+
+      const orderSize = Math.max(5, parseInt(size) || 5);
+      console.log(`[trade] LIMIT BUY ${side} x${orderSize} @ $${orderPrice} on ${market.question}`);
+
+      const result = await client.createAndPostOrder(
+        { tokenID: tokenId, price: orderPrice, side: "BUY", size: orderSize, feeRateBps: 1000, nonce: 0 },
+        { tickSize, negRisk: market.negRisk }
+      );
+
+      console.log("[trade] GTC result:", JSON.stringify(result));
+
+      logTrade({ action: "BUY_LMT", side, size: orderSize, price: orderPrice, market: market.question, result: result.success ? "OK" : (result.errorMsg || "FAIL") });
+
+      res.json({
+        success: result.success || false,
+        orderID: result.orderID,
+        status: result.status,
+        market: market.question,
+        side,
+        size: orderSize,
+        price: orderPrice,
+        cost: (orderSize * orderPrice).toFixed(2),
+        type: "GTC",
+        tx: result.transactionsHashes?.[0] || null,
+        error: result.errorMsg || result.error || null,
+      });
     }
-
-    const orderSize = Math.max(5, parseInt(size) || 5);
-    console.log(`[trade] ${side} x${orderSize} @ $${orderPrice} on ${market.question}`);
-
-    const result = await client.createAndPostOrder(
-      { tokenID: tokenId, price: orderPrice, side: "BUY", size: orderSize, feeRateBps: 1000, nonce: 0 },
-      { tickSize, negRisk: market.negRisk }
-    );
-
-    console.log("[trade] result:", result);
-
-    logTrade({ action: "BUY", side, size: orderSize, price: orderPrice, market: market.question, result: result.success ? "OK" : (result.errorMsg || "FAIL") });
-
-    res.json({
-      success: result.success || false,
-      orderID: result.orderID,
-      status: result.status,
-      market: market.question,
-      side,
-      size: orderSize,
-      price: orderPrice,
-      cost: (orderSize * orderPrice).toFixed(2),
-      tx: result.transactionsHashes?.[0] || null,
-      error: result.errorMsg || result.error || null,
-    });
   } catch (e) {
     console.error("[trade] error:", e.message);
     res.status(500).json({ error: e.message });
   }
 });
 
-// Sell (market sell existing position)
+// Sell (market sell existing position — FOK by default)
 app.post("/api/sell", requireAuth, async (req, res) => {
   if (IS_READONLY) return res.status(403).json({ error: "Read-only mode. Trading disabled." });
   if (!HAS_TRADING) return res.status(400).json({ error: "Trading keys not configured" });
   try {
-    const { side, size, price } = req.body;
+    const { side, size, price, orderType } = req.body;
     if (!side || !size) return res.status(400).json({ error: "Missing side or size" });
 
     const market = await findActive5mMarket();
@@ -543,36 +597,69 @@ app.post("/api/sell", requireAuth, async (req, res) => {
     let tickSize = "0.01";
     try { tickSize = (await client.getTickSize(tokenId)) || "0.01"; } catch (e) {}
 
-    let orderPrice = price;
-    if (!orderPrice) {
-      const book = await client.getOrderBook(tokenId);
-      const bestBid = book.bids?.length ? book.bids[0] : null;
-      if (!bestBid) return res.status(400).json({ error: "No bids in orderbook" });
-      orderPrice = parseFloat(bestBid.price);
+    const useMarketOrder = !price && orderType !== "GTC";
+    const shareCount = Math.max(1, parseFloat(size) || 1);
+
+    if (useMarketOrder) {
+      // FOK MARKET SELL — instant fill, amount = shares to sell
+      console.log(`[sell] MARKET SELL ${side} x${shareCount} shares on ${market.question}`);
+
+      const result = await client.createAndPostMarketOrder(
+        { tokenID: tokenId, amount: shareCount, side: "SELL", feeRateBps: 1000, nonce: 0 },
+        { tickSize, negRisk: market.negRisk },
+        "FOK"
+      );
+
+      console.log("[sell] FOK result:", JSON.stringify(result));
+
+      logTrade({ action: "SELL_MKT", side, shares: shareCount, market: market.question, result: result.success ? "OK" : (result.errorMsg || "FAIL") });
+
+      res.json({
+        success: result.success || false,
+        orderID: result.orderID,
+        status: result.status,
+        market: market.question,
+        side,
+        size: shareCount,
+        price: null,
+        type: "FOK",
+        tx: result.transactionsHashes?.[0] || null,
+        error: result.errorMsg || result.error || null,
+      });
+    } else {
+      // GTC LIMIT SELL
+      let orderPrice = parseFloat(price);
+      if (!orderPrice) {
+        const book = await client.getOrderBook(tokenId);
+        const bestBid = book.bids?.length ? book.bids[0] : null;
+        if (!bestBid) return res.status(400).json({ error: "No bids in orderbook" });
+        orderPrice = parseFloat(bestBid.price);
+      }
+
+      const orderSize = Math.max(1, parseInt(size) || 1);
+      console.log(`[sell] LIMIT SELL ${side} x${orderSize} @ $${orderPrice} on ${market.question}`);
+
+      const result = await client.createAndPostOrder(
+        { tokenID: tokenId, price: orderPrice, side: "SELL", size: orderSize, feeRateBps: 1000, nonce: 0 },
+        { tickSize, negRisk: market.negRisk }
+      );
+
+      logTrade({ action: "SELL_LMT", side, size: orderSize, price: orderPrice, market: market.question, result: result.success ? "OK" : (result.errorMsg || "FAIL") });
+
+      res.json({
+        success: result.success || false,
+        orderID: result.orderID,
+        status: result.status,
+        market: market.question,
+        side,
+        size: orderSize,
+        price: orderPrice,
+        revenue: (orderSize * orderPrice).toFixed(2),
+        type: "GTC",
+        tx: result.transactionsHashes?.[0] || null,
+        error: result.errorMsg || result.error || null,
+      });
     }
-
-    const orderSize = Math.max(1, parseInt(size) || 1);
-    console.log(`[sell] ${side} x${orderSize} @ $${orderPrice} on ${market.question}`);
-
-    const result = await client.createAndPostOrder(
-      { tokenID: tokenId, price: orderPrice, side: "SELL", size: orderSize, feeRateBps: 1000, nonce: 0 },
-      { tickSize, negRisk: market.negRisk }
-    );
-
-    logTrade({ action: "SELL", side, size: orderSize, price: orderPrice, market: market.question, result: result.success ? "OK" : (result.errorMsg || "FAIL") });
-
-    res.json({
-      success: result.success || false,
-      orderID: result.orderID,
-      status: result.status,
-      market: market.question,
-      side,
-      size: orderSize,
-      price: orderPrice,
-      revenue: (orderSize * orderPrice).toFixed(2),
-      tx: result.transactionsHashes?.[0] || null,
-      error: result.errorMsg || result.error || null,
-    });
   } catch (e) {
     console.error("[sell] error:", e.message);
     res.status(500).json({ error: e.message });
@@ -806,21 +893,31 @@ app.post("/api/brain/analyze", requireAuth, async (req, res) => {
     const endDate = market.endDate ? new Date(market.endDate).getTime() : 0;
     const timeLeftSec = endDate ? Math.max(0, Math.floor((endDate - Date.now()) / 1000)) : 0;
 
+    // Extract arrays from wrapped API responses:
+    // odds-history returns { count, data: [...] }
+    // whales returns { latest: {...}, totalScans }  — brain expects array of snapshots
+    // global-trades returns { trades: [...], stats }
+    // patterns returns object (already correct)
+    const oddsData = oddsRes.status === "fulfilled" ? oddsRes.value.data : {};
+    const whalesData = whalesRes.status === "fulfilled" ? whalesRes.value.data : {};
+    const globalData = globalRes.status === "fulfilled" ? globalRes.value.data : {};
+    const patternsData = patternsRes.status === "fulfilled" ? patternsRes.value.data : null;
+
     const decision = brain.analyze({
       market,
       btcPrice,
       bankroll,
       timeLeftSec,
-      oddsHistory: oddsRes.status === "fulfilled" ? oddsRes.value.data : [],
-      whaleData: whalesRes.status === "fulfilled" ? whalesRes.value.data : [],
-      globalTrades: globalRes.status === "fulfilled" ? globalRes.value.data : [],
-      patterns: patternsRes.status === "fulfilled" ? patternsRes.value.data : null,
+      oddsHistory: Array.isArray(oddsData?.data) ? oddsData.data : (Array.isArray(oddsData) ? oddsData : []),
+      whaleData: whalesData?.latest ? [whalesData.latest] : (Array.isArray(whalesData) ? whalesData : []),
+      globalTrades: Array.isArray(globalData?.trades) ? globalData.trades : (Array.isArray(globalData) ? globalData : []),
+      patterns: patternsData,
     });
 
     res.json(decision);
   } catch (e) {
-    console.log("[brain] analyze error:", e.message);
-    res.status(500).json({ error: e.message });
+    console.error("[brain] analyze error:", e.message, e.stack?.split('\n').slice(0, 5).join('\n'));
+    res.status(500).json({ error: e.message || "Unknown brain error" });
   }
 });
 
