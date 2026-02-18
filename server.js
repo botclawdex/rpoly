@@ -242,7 +242,7 @@ app.get("/api/dashboard", async (req, res) => {
     getBTCPrice().catch(() => ({ price: 0, change24h: 0 })),
     findActive5mMarket().catch(() => null),
     axios.get("https://data-api.polymarket.com/positions", {
-      params: { user: PROXY_ADDRESS, limit: 20, sortBy: "CASHPNL", sortDirection: "DESC" },
+      params: { user: PROXY_ADDRESS, limit: 50, sizeThreshold: 0, sortBy: "CASHPNL", sortDirection: "DESC" },
       timeout: 5000,
     }).catch(() => null),
   ]);
@@ -250,6 +250,7 @@ app.get("/api/dashboard", async (req, res) => {
   // Parse open positions for agent's pre-close sell logic
   const positions = (positionsRes?.data || []).map(p => ({
     conditionId: p.conditionId,
+    asset: p.asset,
     title: p.title,
     side: p.outcome,  // "Yes" or "No" -> maps to UP/DOWN
     size: p.size,
@@ -257,6 +258,8 @@ app.get("/api/dashboard", async (req, res) => {
     curPrice: p.curPrice,
     currentValue: p.currentValue,
     cashPnl: p.cashPnl,
+    endDate: p.endDate,
+    redeemable: p.redeemable,
   }));
 
   let orderbook = null;
@@ -419,7 +422,7 @@ app.get("/api/profile", async (req, res) => {
     axios.get(`${DATA_API}/positions`, { params: { user: addr, limit: 50, sortBy: "CASHPNL", sortDirection: "DESC" }, timeout: 5000 }).catch(() => null),
     axios.get(`${DATA_API}/traded`, { params: { user: addr }, timeout: 5000 }).catch(() => null),
     axios.get(`${DATA_API}/closed-positions`, { params: { user: addr, limit: 50, sortBy: "REALIZEDPNL", sortDirection: "DESC" }, timeout: 5000 }).catch(() => null),
-    axios.get(`${DATA_API}/activity`, { params: { user: addr, limit: 100 }, timeout: 5000 }).catch(() => null),
+    axios.get(`${DATA_API}/activity`, { params: { user: addr, limit: 500 }, timeout: 10000 }).catch(() => null),
   ]);
 
   // Profile
@@ -447,7 +450,6 @@ app.get("/api/profile", async (req, res) => {
       curPrice: p.curPrice, currentValue: p.currentValue, cashPnl: p.cashPnl,
       percentPnl: p.percentPnl,
     }));
-    result.totalPnl = positionsRes.data.reduce((sum, p) => sum + (p.cashPnl || 0), 0);
   }
 
   // Markets traded count
@@ -455,22 +457,16 @@ app.get("/api/profile", async (req, res) => {
     result.marketsTraded = tradedRes.data.traded || 0;
   }
 
-  // Closed positions -> realized PnL, wins, losses, biggest win
+  // Closed positions (keep for reference)
   if (closedRes?.data?.length > 0) {
     result.closedPositions = closedRes.data.map(p => ({
       title: p.title, outcome: p.outcome, avgPrice: p.avgPrice,
       totalBought: p.totalBought, realizedPnl: p.realizedPnl, curPrice: p.curPrice,
       timestamp: p.timestamp,
     }));
-    result.realizedPnl = closedRes.data.reduce((sum, p) => sum + (p.realizedPnl || 0), 0);
-    result.biggestWin = Math.max(0, ...closedRes.data.map(p => p.realizedPnl || 0));
-    result.wins = closedRes.data.filter(p => (p.realizedPnl || 0) > 0).length;
-    result.losses = closedRes.data.filter(p => (p.realizedPnl || 0) < 0).length;
-    const closed = result.wins + result.losses;
-    result.winRate = closed > 0 ? Math.round((result.wins / closed) * 100) : 0;
   }
 
-  // Activity -> total volume, recent activity list
+  // REAL stats from activity — per-market buy vs sell+redeem accounting
   if (activityRes?.data?.length > 0) {
     const acts = activityRes.data;
     result.totalVolume = acts.reduce((sum, a) => sum + (a.usdcSize || 0), 0);
@@ -479,6 +475,35 @@ app.get("/api/profile", async (req, res) => {
       size: a.size, usdcSize: a.usdcSize, price: a.price,
       timestamp: a.timestamp, tx: a.transactionHash,
     }));
+
+    // Per-market P/L (real accounting)
+    const marketAccounting = {};
+    acts.forEach(a => {
+      const id = a.conditionId;
+      if (!id) return;
+      if (!marketAccounting[id]) marketAccounting[id] = { spent: 0, received: 0, title: a.title };
+      const usd = parseFloat(a.usdcSize) || 0;
+      if (a.type === "TRADE" && a.side === "BUY") marketAccounting[id].spent += usd;
+      else if (a.type === "TRADE" && a.side === "SELL") marketAccounting[id].received += usd;
+      else if (a.type === "REDEEM") marketAccounting[id].received += usd;
+    });
+
+    let totalPnl = 0, wins = 0, losses = 0, bestTrade = 0, worstTrade = 0;
+    Object.values(marketAccounting).forEach(m => {
+      const pnl = m.received - m.spent;
+      totalPnl += pnl;
+      if (pnl > 0.01) { wins++; if (pnl > bestTrade) bestTrade = pnl; }
+      else if (pnl < -0.01) { losses++; if (pnl < worstTrade) worstTrade = pnl; }
+    });
+
+    result.totalPnl = totalPnl;
+    result.realizedPnl = totalPnl;
+    result.wins = wins;
+    result.losses = losses;
+    result.biggestWin = bestTrade;
+    result.worstTrade = worstTrade;
+    const closed = wins + losses;
+    result.winRate = closed > 0 ? Math.round((wins / closed) * 100) : 0;
   }
 
   res.json(result);
@@ -662,6 +687,46 @@ app.post("/api/sell", requireAuth, async (req, res) => {
     }
   } catch (e) {
     console.error("[sell] error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Sell orphaned position by tokenId (for old/non-current markets)
+app.post("/api/sell-orphan", requireAuth, async (req, res) => {
+  if (IS_READONLY) return res.status(403).json({ error: "Read-only mode." });
+  if (!HAS_TRADING) return res.status(400).json({ error: "Trading keys not configured" });
+  try {
+    const { tokenId, size } = req.body;
+    if (!tokenId || !size) return res.status(400).json({ error: "Missing tokenId or size" });
+
+    const client = getClobClient();
+    if (!client) return res.status(500).json({ error: "ClobClient not available" });
+
+    let tickSize = "0.01";
+    try { tickSize = (await client.getTickSize(tokenId)) || "0.01"; } catch (e) {}
+
+    const shareCount = Math.max(1, parseFloat(size) || 1);
+    console.log(`[sell-orphan] MARKET SELL tokenId=${tokenId.slice(0, 12)}... x${shareCount} shares`);
+
+    const result = await client.createAndPostMarketOrder(
+      { tokenID: tokenId, amount: shareCount, side: "SELL", feeRateBps: 1000, nonce: 0 },
+      { tickSize, negRisk: false },
+      "FOK"
+    );
+
+    console.log("[sell-orphan] FOK result:", JSON.stringify(result));
+
+    if (result?.orderID || result?.orderHashes?.length > 0) {
+      res.json({ success: true, status: result.status || "matched", price: null });
+    } else {
+      res.json({
+        success: false,
+        status: result.status || "failed",
+        error: result.errorMsg || "no match",
+      });
+    }
+  } catch (e) {
+    console.error("[sell-orphan] error:", e.message);
     res.status(500).json({ error: e.message });
   }
 });
