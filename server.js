@@ -104,11 +104,29 @@ function getCurrent5mSlots() {
   return [current, next, next + 300, next + 600];
 }
 
-async function findActive5mMarket() {
+const ASSET_CONFIGS = [
+  { prefix: 'btc', binanceSymbol: 'BTCUSDT', name: 'BTC' },
+  { prefix: 'eth', binanceSymbol: 'ETHUSDT', name: 'ETH' },
+  { prefix: 'sol', binanceSymbol: 'SOLUSDT', name: 'SOL' },
+];
+
+async function getCryptoPrice(binanceSymbol) {
+  try {
+    const res = await axios.get("https://api.binance.com/api/v3/ticker/24hr", {
+      params: { symbol: binanceSymbol },
+      timeout: 5000,
+    });
+    const price = parseFloat(res.data.lastPrice) || 0;
+    if (price > 0) return { price, change24h: parseFloat(res.data.priceChangePercent) || 0, source: "binance" };
+  } catch (e) {}
+  return { price: 0, change24h: 0, source: "none" };
+}
+
+async function findActive5mMarketForAsset(asset) {
   for (const slot of getCurrent5mSlots()) {
     try {
       const res = await axios.get(`${GAMMA_API}/markets`, {
-        params: { slug: `btc-updown-5m-${slot}` },
+        params: { slug: `${asset.prefix}-updown-5m-${slot}` },
         timeout: 5000,
       });
       if (res.data?.length > 0 && !res.data[0].closed) {
@@ -119,18 +137,19 @@ async function findActive5mMarket() {
         const eventStart = m.eventStartTime || null;
         let priceToBeat = null;
         if (eventStart) {
+          const startMs = new Date(eventStart).getTime();
           try {
-            const startMs = new Date(eventStart).getTime();
             const kRes = await axios.get("https://api.binance.com/api/v3/klines", {
-              params: { symbol: "BTCUSDT", interval: "1m", startTime: startMs, limit: 1 },
+              params: { symbol: asset.binanceSymbol, interval: "1m", startTime: startMs, limit: 1 },
               timeout: 5000,
             });
             if (kRes.data?.length > 0) {
               priceToBeat = parseFloat(kRes.data[0][1]);
-              console.log("[priceToBeat] $" + priceToBeat + " from " + eventStart);
             }
-          } catch (e) {
-            console.log("[priceToBeat] error:", e.message);
+          } catch (e) {}
+          if (!priceToBeat) {
+            const fallback = await getCryptoPrice(asset.binanceSymbol);
+            if (fallback.price > 0) priceToBeat = fallback.price;
           }
         }
 
@@ -139,6 +158,8 @@ async function findActive5mMarket() {
           conditionId: m.conditionId,
           question: m.question,
           slug: m.slug,
+          asset: asset.name,
+          binanceSymbol: asset.binanceSymbol,
           negRisk: m.negRisk || false,
           upTokenId: tokenIds[0],
           downTokenId: tokenIds[1],
@@ -155,6 +176,68 @@ async function findActive5mMarket() {
     } catch (e) { /* next slot */ }
   }
   return null;
+}
+
+async function findActive5mMarket() {
+  return await findActive5mMarketForAsset(ASSET_CONFIGS[0]);
+}
+
+// ===== 15-MINUTE MARKETS =====
+
+function getCurrent15mSlots() {
+  const now = Math.floor(Date.now() / 1000);
+  const current = Math.floor(now / 900) * 900;
+  const next = current + 900;
+  return [current, next, next + 900];
+}
+
+async function findActive15mMarket() {
+  for (const slot of getCurrent15mSlots()) {
+    try {
+      const res = await axios.get(`${GAMMA_API}/markets`, {
+        params: { slug: `btc-updown-15m-${slot}` },
+        timeout: 5000,
+      });
+      if (res.data?.length > 0 && !res.data[0].closed) {
+        const m = res.data[0];
+        const tokenIds = JSON.parse(m.clobTokenIds || "[]");
+        const outcomes = JSON.parse(m.outcomes || "[]");
+        const prices = JSON.parse(m.outcomePrices || "[]");
+        const eventStart = m.eventStartTime || null;
+        let priceToBeat = null;
+        if (eventStart) {
+          const startMs = new Date(eventStart).getTime();
+          try {
+            const kRes = await axios.get("https://api.binance.com/api/v3/klines", {
+              params: { symbol: "BTCUSDT", interval: "1m", startTime: startMs, limit: 1 },
+              timeout: 5000,
+            });
+            if (kRes.data?.length > 0) priceToBeat = parseFloat(kRes.data[0][1]);
+          } catch (e) {}
+          if (!priceToBeat) {
+            const fallback = await getCryptoPrice("BTCUSDT");
+            if (fallback.price > 0) priceToBeat = fallback.price;
+          }
+        }
+        return {
+          id: m.id, conditionId: m.conditionId, question: m.question, slug: m.slug,
+          asset: "BTC-15m", binanceSymbol: "BTCUSDT", negRisk: m.negRisk || false,
+          upTokenId: tokenIds[0], downTokenId: tokenIds[1], outcomes,
+          upPrice: parseFloat(prices[0]) || 0.5, downPrice: parseFloat(prices[1]) || 0.5,
+          volume: m.volumeNum || m.volume || 0, liquidity: m.liquidityNum || m.liquidity || 0,
+          endDate: m.endDate, eventStartTime: eventStart, priceToBeat, marketType: "15m",
+        };
+      }
+    } catch (e) {}
+  }
+  return null;
+}
+
+async function findAllActive5mMarkets() {
+  const results = await Promise.all(
+    ASSET_CONFIGS.map(asset => findActive5mMarketForAsset(asset).catch(() => null))
+  );
+  return results.filter(m => m !== null);
 }
 
 async function getBalances() {
@@ -199,15 +282,41 @@ async function getBalances() {
 }
 
 async function getBTCPrice() {
+  // Try Binance first
   try {
     const res = await axios.get("https://api.binance.com/api/v3/ticker/24hr", {
       params: { symbol: "BTCUSDT" },
       timeout: 5000,
     });
-    return { price: parseFloat(res.data.lastPrice) || 0, change24h: parseFloat(res.data.priceChangePercent) || 0 };
+    const price = parseFloat(res.data.lastPrice) || 0;
+    if (price > 0) return { price, change24h: parseFloat(res.data.priceChangePercent) || 0, source: "binance" };
   } catch (e) {
-    return { price: 0, change24h: 0 };
+    console.log("[btc] Binance failed:", e.message);
   }
+
+  // Fallback 1: CoinGecko
+  try {
+    const res = await axios.get("https://api.coingecko.com/api/v3/simple/price", {
+      params: { ids: "bitcoin", vs_currencies: "usd", include_24hr_change: "true" },
+      timeout: 5000,
+    });
+    const price = res.data?.bitcoin?.usd || 0;
+    if (price > 0) return { price, change24h: res.data?.bitcoin?.usd_24h_change || 0, source: "coingecko" };
+  } catch (e) {
+    console.log("[btc] CoinGecko failed:", e.message);
+  }
+
+  // Fallback 2: CoinCap
+  try {
+    const res = await axios.get("https://api.coincap.io/v2/assets/bitcoin", { timeout: 5000 });
+    const price = parseFloat(res.data?.data?.priceUsd) || 0;
+    if (price > 0) return { price, change24h: parseFloat(res.data?.data?.changePercent24Hr) || 0, source: "coincap" };
+  } catch (e) {
+    console.log("[btc] CoinCap failed:", e.message);
+  }
+
+  console.log("[btc] ALL sources failed — returning 0");
+  return { price: 0, change24h: 0, source: "none" };
 }
 
 // ===== PUBLIC ENDPOINTS =====
@@ -233,14 +342,35 @@ app.post("/api/auth", (req, res) => {
   }
 });
 
+async function fetchOrderbookForMarket(mkt) {
+  if (!mkt?.upTokenId) return { orderbook: null, downOrderbook: null };
+  const client = getClobClient();
+  if (!client) return { orderbook: null, downOrderbook: null };
+
+  const [obResult, dnObResult] = await Promise.all([
+    client.getOrderBook(mkt.upTokenId).catch(() => null),
+    mkt.downTokenId ? client.getOrderBook(mkt.downTokenId).catch(() => null) : null,
+  ]);
+
+  const formatOb = (ob) => ob ? {
+    bestAsk: ob.asks?.length ? ob.asks[ob.asks.length - 1] : null,
+    bestBid: ob.bids?.length ? ob.bids[ob.bids.length - 1] : null,
+    askDepth: ob.asks?.length || 0,
+    bidDepth: ob.bids?.length || 0,
+  } : null;
+
+  return { orderbook: formatOb(obResult), downOrderbook: formatOb(dnObResult) };
+}
+
 // Dashboard data (public read - no secrets exposed)
 app.get("/api/dashboard", async (req, res) => {
   console.log("[dashboard] fetching...");
 
-  const [balances, btc, market, positionsRes] = await Promise.all([
+  const [balances, btc, allMarkets, market15m, positionsRes] = await Promise.all([
     getBalances().catch(() => ({ eoa: { usdc: 0, matic: 0 }, proxy: { usdc: 0 }, totalUsdc: 0 })),
     getBTCPrice().catch(() => ({ price: 0, change24h: 0 })),
-    findActive5mMarket().catch(() => null),
+    findAllActive5mMarkets().catch(() => []),
+    findActive15mMarket().catch(() => null),
     axios.get("https://data-api.polymarket.com/positions", {
       params: { user: PROXY_ADDRESS, limit: 50, sizeThreshold: 0, sortBy: "CASHPNL", sortDirection: "DESC" },
       timeout: 5000,
@@ -252,7 +382,7 @@ app.get("/api/dashboard", async (req, res) => {
     conditionId: p.conditionId,
     asset: p.asset,
     title: p.title,
-    side: p.outcome,  // "Yes" or "No" -> maps to UP/DOWN
+    side: p.outcome,
     size: p.size,
     avgPrice: p.avgPrice,
     curPrice: p.curPrice,
@@ -262,23 +392,38 @@ app.get("/api/dashboard", async (req, res) => {
     redeemable: p.redeemable,
   }));
 
-  let orderbook = null;
+  // Include 15m market in the pool if found
+  const allMarketsPlus15m = market15m ? [...allMarkets, market15m] : allMarkets;
+
+  // Fetch orderbooks + live crypto prices for all markets in parallel
+  const marketsWithOb = await Promise.all(
+    allMarketsPlus15m.map(async (mkt) => {
+      const [{ orderbook, downOrderbook }, livePrice] = await Promise.all([
+        fetchOrderbookForMarket(mkt),
+        getCryptoPrice(mkt.binanceSymbol).catch(() => ({ price: 0 })),
+      ]);
+      return { ...mkt, orderbook, downOrderbook, cryptoPrice: livePrice.price };
+    })
+  );
+
+  // Primary market (BTC for backward compat)
+  const market = allMarkets.find(m => m.asset === 'BTC') || allMarkets[0] || null;
+  const primaryMkt = marketsWithOb.find(m => m.asset === 'BTC') || marketsWithOb[0] || null;
+
+  let orderbook = primaryMkt?.orderbook || null;
+  let downOrderbook = primaryMkt?.downOrderbook || null;
   let openOrders = [];
   let midpoint = null;
   let spread = null;
 
   if (market?.upTokenId) {
     const client = getClobClient();
-    const tokenId = market.upTokenId;
-
-    const [obResult, ordersResult, midResult, spreadResult] = await Promise.all([
-      client ? client.getOrderBook(tokenId).catch(e => { console.log("Orderbook:", e.message); return null; }) : null,
-      client ? client.getOpenOrders().catch(e => { console.log("OpenOrders:", e.message); return []; }) : [],
-      axios.get(CLOB_API + "/midpoint", { params: { token_id: tokenId }, timeout: 3000 }).catch(() => null),
-      axios.get(CLOB_API + "/spread", { params: { token_id: tokenId }, timeout: 3000 }).catch(() => null),
-    ]);
-
-    orderbook = obResult;
+    const fetches = [
+      client ? client.getOpenOrders().catch(() => []) : [],
+      axios.get(CLOB_API + "/midpoint", { params: { token_id: market.upTokenId }, timeout: 3000 }).catch(() => null),
+      axios.get(CLOB_API + "/spread", { params: { token_id: market.upTokenId }, timeout: 3000 }).catch(() => null),
+    ];
+    const [ordersResult, midResult, spreadResult] = await Promise.all(fetches);
     openOrders = ordersResult || [];
     midpoint = midResult?.data?.mid ? parseFloat(midResult.data.mid) : null;
     spread = spreadResult?.data?.spread ? parseFloat(spreadResult.data.spread) : null;
@@ -296,8 +441,8 @@ app.get("/api/dashboard", async (req, res) => {
 
     const direction = up > 0.55 ? "DOWN" : dn > 0.55 ? "UP" : "NEUTRAL";
 
-    const askDepth = orderbook?.asks?.length || 0;
-    const bidDepth = orderbook?.bids?.length || 0;
+    const askDepth = orderbook?.askDepth || 0;
+    const bidDepth = orderbook?.bidDepth || 0;
     const bookBias = bidDepth > askDepth * 1.3 ? "BUY" : askDepth > bidDepth * 1.3 ? "SELL" : "BALANCED";
     const btcBias = btc.change24h > 0.5 ? "UP" : btc.change24h < -0.5 ? "DOWN" : "FLAT";
     const volBias = (market.volume || 0) > 5000 ? "HIGH" : "LOW";
@@ -316,19 +461,14 @@ app.get("/api/dashboard", async (req, res) => {
     };
   }
 
-  const obData = orderbook ? {
-    bestAsk: orderbook.asks?.length ? orderbook.asks[orderbook.asks.length - 1] : null,
-    bestBid: orderbook.bids?.length ? orderbook.bids[0] : null,
-    askDepth: orderbook.asks?.length || 0,
-    bidDepth: orderbook.bids?.length || 0,
-  } : null;
-
   const result = {
     balances,
     btc,
     market,
+    markets: marketsWithOb,
     positions,
-    orderbook: obData,
+    orderbook,
+    downOrderbook,
     signal,
     openOrders,
     hasTradingKeys: HAS_TRADING,
@@ -340,6 +480,7 @@ app.get("/api/dashboard", async (req, res) => {
   console.log("[dashboard] done:", {
     proxyUsdc: balances.proxy?.usdc,
     btcPrice: btc.price,
+    marketsFound: marketsWithOb.map(m => m.asset).join(',') || 'none',
     market: market?.question?.slice(0, 40) || "none",
     signal: signal.direction,
     confidence: signal.confidence,
@@ -379,6 +520,9 @@ app.get("/api/markets/5m", async (req, res) => {
                 if (kr.data?.length > 0) ptb = parseFloat(kr.data[0][1]);
               }
             } catch (e) {}
+            if (!ptb) {
+              try { const fb = await getBTCPrice(); if (fb.price > 0) ptb = fb.price; } catch (e) {}
+            }
           }
           markets.push({
             question: m.question,
@@ -506,6 +650,18 @@ app.get("/api/profile", async (req, res) => {
     result.winRate = closed > 0 ? Math.round((wins / closed) * 100) : 0;
   }
 
+  if (statsBaseline?.profile) {
+    const bp = statsBaseline.profile;
+    result.totalPnl = result.totalPnl - (bp.totalPnl || 0);
+    result.realizedPnl = result.realizedPnl - (bp.realizedPnl || 0);
+    result.wins = Math.max(0, result.wins - (bp.wins || 0));
+    result.losses = Math.max(0, result.losses - (bp.losses || 0));
+    const adjClosed = result.wins + result.losses;
+    result.winRate = adjClosed > 0 ? Math.round((result.wins / adjClosed) * 100) : 0;
+    result.totalVolume = Math.max(0, result.totalVolume - (bp.totalVolume || 0));
+    result.baselineActive = true;
+  }
+
   res.json(result);
 });
 
@@ -517,11 +673,18 @@ app.post("/api/trade", requireAuth, async (req, res) => {
   if (!HAS_TRADING) return res.status(400).json({ error: "Trading keys not configured" });
 
   try {
-    const { side, size, price, orderType } = req.body;
+    const { side, size, price, orderType, asset } = req.body;
     if (!side || !size) return res.status(400).json({ error: "Missing side or size" });
 
-    const market = await findActive5mMarket();
-    if (!market) return res.status(400).json({ error: "No active 5m market" });
+    let market;
+    if (asset === "BTC-15m") {
+      market = await findActive15mMarket();
+      if (!market) return res.status(400).json({ error: "No active 15m BTC market" });
+    } else {
+      const assetConfig = asset ? ASSET_CONFIGS.find(a => a.name === asset) : ASSET_CONFIGS[0];
+      market = await findActive5mMarketForAsset(assetConfig || ASSET_CONFIGS[0]);
+      if (!market) return res.status(400).json({ error: `No active 5m market for ${asset || 'BTC'}` });
+    }
 
     const tokenId = side === "UP" ? market.upTokenId : market.downTokenId;
     const client = getClobClient();
@@ -609,11 +772,18 @@ app.post("/api/sell", requireAuth, async (req, res) => {
   if (IS_READONLY) return res.status(403).json({ error: "Read-only mode. Trading disabled." });
   if (!HAS_TRADING) return res.status(400).json({ error: "Trading keys not configured" });
   try {
-    const { side, size, price, orderType } = req.body;
+    const { side, size, price, orderType, asset } = req.body;
     if (!side || !size) return res.status(400).json({ error: "Missing side or size" });
 
-    const market = await findActive5mMarket();
-    if (!market) return res.status(400).json({ error: "No active 5m market" });
+    let market;
+    if (asset === "BTC-15m") {
+      market = await findActive15mMarket();
+      if (!market) return res.status(400).json({ error: "No active 15m BTC market" });
+    } else {
+      const assetConfig = asset ? ASSET_CONFIGS.find(a => a.name === asset) : ASSET_CONFIGS[0];
+      market = await findActive5mMarketForAsset(assetConfig || ASSET_CONFIGS[0]);
+      if (!market) return res.status(400).json({ error: `No active 5m market for ${asset || 'BTC'}` });
+    }
 
     const tokenId = side === "UP" ? market.upTokenId : market.downTokenId;
     const client = getClobClient();
@@ -623,7 +793,8 @@ app.post("/api/sell", requireAuth, async (req, res) => {
     try { tickSize = (await client.getTickSize(tokenId)) || "0.01"; } catch (e) {}
 
     const useMarketOrder = !price && orderType !== "GTC";
-    const shareCount = Math.max(1, parseFloat(size) || 1);
+    const shareCount = parseFloat(size) || 1;
+    if (shareCount < 0.01) return res.json({ success: true, skipped: true, reason: "size too small" });
 
     if (useMarketOrder) {
       // FOK MARKET SELL — instant fill, amount = shares to sell
@@ -656,7 +827,7 @@ app.post("/api/sell", requireAuth, async (req, res) => {
       let orderPrice = parseFloat(price);
       if (!orderPrice) {
         const book = await client.getOrderBook(tokenId);
-        const bestBid = book.bids?.length ? book.bids[0] : null;
+        const bestBid = book.bids?.length ? book.bids[book.bids.length - 1] : null;
         if (!bestBid) return res.status(400).json({ error: "No bids in orderbook" });
         orderPrice = parseFloat(bestBid.price);
       }
@@ -705,7 +876,8 @@ app.post("/api/sell-orphan", requireAuth, async (req, res) => {
     let tickSize = "0.01";
     try { tickSize = (await client.getTickSize(tokenId)) || "0.01"; } catch (e) {}
 
-    const shareCount = Math.max(1, parseFloat(size) || 1);
+    const shareCount = parseFloat(size) || 1;
+    if (shareCount < 0.01) return res.json({ success: true, skipped: true, reason: "size too small" });
     console.log(`[sell-orphan] MARKET SELL tokenId=${tokenId.slice(0, 12)}... x${shareCount} shares`);
 
     const result = await client.createAndPostMarketOrder(
@@ -927,12 +1099,134 @@ app.post("/api/redeem", requireAuth, async (req, res) => {
   });
 });
 
+// ===== DISPLAY BASELINE (show stats "from now") =====
+const BASELINE_FILE = path.join(__dirname, "trades", "stats-baseline.json");
+
+function loadBaseline() {
+  try {
+    if (fs.existsSync(BASELINE_FILE)) return JSON.parse(fs.readFileSync(BASELINE_FILE, "utf8"));
+  } catch (e) {}
+  return null;
+}
+
+let statsBaseline = loadBaseline();
+
+app.post("/api/reset-display", requireAuth, (req, res) => {
+  if (!brain) return res.status(500).json({ error: "Brain not loaded" });
+  const memory = brain.loadMemory();
+  statsBaseline = {
+    resetAt: Date.now(),
+    resetDate: new Date().toISOString(),
+    brain: {
+      totalTrades: memory.stats.totalTrades,
+      wins: memory.stats.wins,
+      losses: memory.stats.losses,
+      skips: memory.stats.skips,
+      totalPnl: memory.stats.totalPnl,
+      bestTrade: memory.stats.bestTrade,
+      worstTrade: memory.stats.worstTrade,
+    },
+    profile: {
+      totalPnl: 0,
+      realizedPnl: 0,
+      wins: 0,
+      losses: 0,
+      biggestWin: 0,
+      totalVolume: 0,
+    },
+  };
+
+  try {
+    const profileData = {};
+    axios.get(`https://data-api.polymarket.com/activity`, {
+      params: { user: PROXY_ADDRESS, limit: 500 },
+      timeout: 10000,
+    }).then(activityRes => {
+      if (activityRes?.data?.length > 0) {
+        const acts = activityRes.data;
+        const marketAccounting = {};
+        acts.forEach(a => {
+          const id = a.conditionId;
+          if (!id) return;
+          if (!marketAccounting[id]) marketAccounting[id] = { spent: 0, received: 0 };
+          const usd = parseFloat(a.usdcSize) || 0;
+          if (a.type === "TRADE" && a.side === "BUY") marketAccounting[id].spent += usd;
+          else if (a.type === "TRADE" && a.side === "SELL") marketAccounting[id].received += usd;
+          else if (a.type === "REDEEM") marketAccounting[id].received += usd;
+        });
+        let totalPnl = 0, wins = 0, losses = 0, bestTrade = 0;
+        Object.values(marketAccounting).forEach(m => {
+          const pnl = m.received - m.spent;
+          totalPnl += pnl;
+          if (pnl > 0.01) { wins++; if (pnl > bestTrade) bestTrade = pnl; }
+          else if (pnl < -0.01) losses++;
+        });
+        statsBaseline.profile = { totalPnl, realizedPnl: totalPnl, wins, losses, biggestWin: bestTrade, totalVolume: acts.reduce((s, a) => s + (a.usdcSize || 0), 0) };
+        fs.writeFileSync(BASELINE_FILE, JSON.stringify(statsBaseline, null, 2));
+      }
+    }).catch(() => {});
+  } catch (e) {}
+
+  fs.writeFileSync(BASELINE_FILE, JSON.stringify(statsBaseline, null, 2));
+  console.log("[reset-display] Stats baseline saved at", new Date().toISOString());
+  res.json({ success: true, resetAt: statsBaseline.resetDate, baseline: statsBaseline });
+});
+
+app.get("/api/baseline", (req, res) => {
+  res.json(statsBaseline || { active: false });
+});
+
 // ===== BRAIN (Trading Intelligence) =====
 
-// GET /api/brain/status — Full brain introspection
+// GET /api/strategies — Available strategy profiles
+app.get("/api/strategies", (req, res) => {
+  try {
+    const data = JSON.parse(fs.readFileSync(path.join(__dirname, "brain", "strategy-profiles.json"), "utf8"));
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: "Strategy profiles not found" });
+  }
+});
+
+// GET /api/brain/status — Full brain introspection (with baseline offset)
 app.get("/api/brain/status", (req, res) => {
   if (!brain) return res.status(500).json({ error: "Brain not loaded" });
-  res.json(brain.getStatus());
+  const status = brain.getStatus();
+
+  if (statsBaseline?.brain) {
+    const b = statsBaseline.brain;
+    const rawWins = parseInt(status.memory.wins) || 0;
+    const rawLosses = parseInt(status.memory.losses) || 0;
+    const adjWins = Math.max(0, rawWins - (b.wins || 0));
+    const adjLosses = Math.max(0, rawLosses - (b.losses || 0));
+    const adjTotal = adjWins + adjLosses;
+    const rawPnl = parseFloat(String(status.memory.totalPnl).replace('$','')) || 0;
+    const adjPnl = rawPnl - (b.totalPnl || 0);
+
+    status.memory.totalTrades = (status.memory.totalTrades || 0) - (b.totalTrades || 0);
+    status.memory.wins = adjWins;
+    status.memory.losses = adjLosses;
+    status.memory.skips = Math.max(0, (parseInt(status.memory.skips) || 0) - (b.skips || 0));
+    status.memory.winRate = adjTotal > 0 ? (adjWins / adjTotal * 100).toFixed(1) + "%" : "0.0%";
+    status.memory.totalPnl = "$" + adjPnl.toFixed(2);
+
+    const mem = brain.loadMemory();
+    const postResetTrades = (mem.recentTrades || []).filter(t => t.ts > statsBaseline.resetAt);
+    if (postResetTrades.length > 0) {
+      const best = Math.max(...postResetTrades.map(t => t.pnl));
+      const worst = Math.min(...postResetTrades.map(t => t.pnl));
+      status.memory.bestTrade = "$" + Math.max(0, best).toFixed(2);
+      status.memory.worstTrade = "$" + Math.min(0, worst).toFixed(2);
+    } else {
+      status.memory.bestTrade = "$0.00";
+      status.memory.worstTrade = "$0.00";
+    }
+
+    status.baselineActive = true;
+    status.baselineResetAt = statsBaseline.resetDate;
+  }
+
+  res.json(status);
 });
 
 // POST /api/brain/analyze — Run analysis on current market data
@@ -950,13 +1244,32 @@ app.post("/api/brain/analyze", requireAuth, async (req, res) => {
     ]);
 
     const dash = dashRes.status === "fulfilled" ? dashRes.value.data : {};
-    const market = dash.market || {};
-    const btcPrice = dash.btc?.price || 0;
-    const bankroll = dash.balances?.proxy?.usdc || 0;
+    const bankroll = req.body.bankroll || dash.balances?.proxy?.usdc || 0;
 
-    // Calculate time left
-    const endDate = market.endDate ? new Date(market.endDate).getTime() : 0;
-    const timeLeftSec = endDate ? Math.max(0, Math.floor((endDate - Date.now()) / 1000)) : 0;
+    // Use market data from agent request (per-asset), fallback to dashboard
+    const market = req.body.market || dash.market || {};
+    const cryptoPrice = req.body.btcPrice || market.cryptoPrice || dash.btc?.price || 0;
+
+    // Enrich market with orderbook data from dashboard if not already present
+    const dashMarket = (dash.markets || []).find(m => m.conditionId === market.conditionId);
+    const ob = dashMarket?.orderbook || dash.orderbook;
+    const dnOb = dashMarket?.downOrderbook || dash.downOrderbook;
+    if (ob && !market.bestAsk) {
+      const bestAsk = ob.bestAsk ? parseFloat(ob.bestAsk.price) : null;
+      const bestBid = ob.bestBid ? parseFloat(ob.bestBid.price) : null;
+      market.askDepth = ob.askDepth || 0;
+      market.bidDepth = ob.bidDepth || 0;
+      market.bestAsk = bestAsk;
+      market.bestBid = bestBid;
+      if (bestAsk && bestBid) market.bookSpread = (bestAsk - bestBid) / bestAsk;
+    }
+    if (dash.signal && !market.apiSpread) {
+      market.apiSpread = dash.signal.spread || null;
+      market.apiMidpoint = dash.signal.midpoint || null;
+    }
+
+    // Use time left from agent request, fallback to calculation
+    const timeLeftSec = req.body.timeLeftSec || (market.endDate ? Math.max(0, Math.floor((new Date(market.endDate).getTime() - Date.now()) / 1000)) : 0);
 
     // Extract arrays from wrapped API responses:
     // odds-history returns { count, data: [...] }
@@ -970,7 +1283,7 @@ app.post("/api/brain/analyze", requireAuth, async (req, res) => {
 
     const decision = brain.analyze({
       market,
-      btcPrice,
+      btcPrice: cryptoPrice,
       bankroll,
       timeLeftSec,
       oddsHistory: Array.isArray(oddsData?.data) ? oddsData.data : (Array.isArray(oddsData) ? oddsData : []),
@@ -990,7 +1303,8 @@ app.post("/api/brain/analyze", requireAuth, async (req, res) => {
 app.post("/api/brain/record", requireAuth, (req, res) => {
   if (!brain) return res.status(500).json({ error: "Brain not loaded" });
 
-  const { side, amount, price, won, pnl, confidence, strategies, regime } = req.body;
+  const { side, amount, price, won, pnl, confidence, strategies, regime,
+          asset, timeLeftAtEntry, spreadAtEntry, cryptoPrice, priceToBeat, exitType, signalStrength } = req.body;
   if (typeof won !== "boolean" || typeof pnl !== "number") {
     return res.status(400).json({ error: "Required: won (bool), pnl (number)" });
   }
@@ -1005,9 +1319,27 @@ app.post("/api/brain/record", requireAuth, (req, res) => {
     confidence: confidence || 0.5,
     strategies: strategies || [],
     regime: regime || "unknown",
+    asset: asset || "BTC",
+    timeLeftAtEntry: timeLeftAtEntry || null,
+    spreadAtEntry: spreadAtEntry || null,
+    cryptoPrice: cryptoPrice || null,
+    priceToBeat: priceToBeat || null,
+    exitType: exitType || "resolution",
+    signalStrength: signalStrength || null,
   });
 
   res.json({ success: true, ...result });
+});
+
+// GET /api/brain/edge — Statistical edge analysis across all trades
+app.get("/api/brain/edge", (req, res) => {
+  if (!brain) return res.status(500).json({ error: "Brain not loaded" });
+  try {
+    const analysis = brain.analyzeEdge();
+    res.json(analysis);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // BTC chart - supports ?interval=1s|1m|5m|15m

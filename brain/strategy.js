@@ -56,7 +56,7 @@ const SOUL = {
   // Emotional guardrails (anti-tilt)
   mentalState: {
     tiltLevel: 0,          // 0-10, increases on consecutive losses
-    confidenceFloor: 0.25, // Student: lowered for learning trades (was 0.55→0.35→0.25)
+    confidenceFloor: 0.10, // Hold-to-resolution: slightly relaxed for more trades
     maxTiltBeforePause: 15, // pause at this tilt level (10+ consecutive losses)
   },
 };
@@ -265,28 +265,26 @@ const Senses = {
     const diff = btcPrice - priceToBeat;
     const pctDiff = (diff / priceToBeat) * 100;
 
-    // Raised from 0.02% to 0.05% — below this is noise
-    if (Math.abs(pctDiff) < 0.05) return null;
+    if (Math.abs(pctDiff) < 0.01) return null; // 0.01% — catch smaller BTC moves
 
     const side = pctDiff > 0 ? "YES" : "NO";
     const absPct = Math.abs(pctDiff);
 
     const strength = Math.min(absPct / 0.15, 1.0);
-    let confidence = 0.20 + strength * 0.35; // 0.20 to 0.55
+    let confidence = 0.25 + strength * 0.30; // 0.25 to 0.55
 
-    // Time-weight: momentum is more predictive later in the 5-minute window
-    // At t=60s elapsed (4 min left), timeWeight = 0.2; at t=240s (1 min left), timeWeight = 0.8
+    // Time-weight: later in the window = more predictive, but don't crush early signals
     const totalMarketTime = 300;
     const elapsed = Math.max(0, totalMarketTime - (timeLeftSec || totalMarketTime));
-    const timeWeight = 0.2 + 0.8 * (elapsed / totalMarketTime);
+    const timeWeight = 0.7 + 0.3 * (elapsed / totalMarketTime); // 0.70 to 1.0
     confidence *= timeWeight;
 
-    // Odds confirmation: if market disagrees with our momentum, reduce confidence
+    // Odds confirmation: only penalize if market STRONGLY disagrees
     const ourOdds = side === "YES" ? (upPrice || 0.5) : (downPrice || 0.5);
-    if (ourOdds < 0.42) {
-      confidence *= 0.6; // Market strongly disagrees — reduce 40%
-    } else if (ourOdds < 0.47) {
-      confidence *= 0.8; // Market mildly disagrees — reduce 20%
+    if (ourOdds < 0.38) {
+      confidence *= 0.6;
+    } else if (ourOdds < 0.44) {
+      confidence *= 0.8;
     }
 
     if (confidence < 0.10) return null;
@@ -311,10 +309,12 @@ const Senses = {
     if (!latest || !latest.holders || !latest.holders.length) return null;
 
     // Calculate whale-weighted sentiment
+    // Collector saves: { amount, outcome: "UP"/"DOWN", addr, name }
     let yesWeight = 0, noWeight = 0;
     for (const h of latest.holders.slice(0, 10)) {
-      const size = parseFloat(h.size) || 0;
-      if (h.position === "Yes") yesWeight += size;
+      const size = parseFloat(h.amount) || parseFloat(h.size) || 0;
+      const isUp = h.outcome === "UP" || h.outcome === "Yes" || h.position === "Yes";
+      if (isUp) yesWeight += size;
       else noWeight += size;
     }
 
@@ -353,15 +353,49 @@ const Senses = {
     const newest = marketOdds[marketOdds.length - 1];
     const shift = (newest.upPrice || newest.up || 0.5) - (oldest.upPrice || oldest.up || 0.5);
 
-    if (Math.abs(shift) < 0.05) return null; // no significant movement
+    if (Math.abs(shift) < 0.02) return null; // 2pts minimum shift
 
     const side = shift > 0 ? "YES" : "NO";
-    const strength = Math.min(Math.abs(shift) / 0.15, 1.0);
+    const strength = Math.min(Math.abs(shift) / 0.10, 1.0);
     return {
       strategy: "oddsShift",
       side,
       confidence: 0.10 + strength * 0.20, // 0.10 to 0.30
       reason: `Odds shifted ${shift > 0 ? "UP" : "DOWN"} by ${Math.round(Math.abs(shift) * 100)}pts. Momentum in odds.`,
+    };
+  },
+
+  /**
+   * Signal 5b: ODDS BIAS (fallback when BTC data unavailable)
+   * Uses raw market odds deviation from 50/50 as a directional indicator.
+   * The market IS the signal — if the crowd puts odds > 55% on one side, follow it.
+   * Weaker than momentum but fires reliably.
+   */
+  oddsBias(market, timeLeftSec) {
+    const { upPrice, downPrice } = market;
+    if (!upPrice || !downPrice) return null;
+
+    const deviation = upPrice - 0.5;
+    const absDev = Math.abs(deviation);
+
+    if (absDev < 0.01) return null; // 1% odds deviation — fires at UP>0.51
+
+    const side = deviation > 0 ? "YES" : "NO";
+    const strength = Math.min(absDev / 0.15, 1.0);
+    let confidence = 0.12 + strength * 0.20; // 0.12 to 0.32
+
+    const totalMarketTime = 300;
+    const elapsed = Math.max(0, totalMarketTime - (timeLeftSec || totalMarketTime));
+    const timeWeight = 0.4 + 0.6 * (elapsed / totalMarketTime);
+    confidence *= timeWeight;
+
+    if (confidence < 0.10) return null;
+
+    return {
+      strategy: "oddsBias",
+      side,
+      confidence,
+      reason: `Market odds skewed ${(deviation > 0 ? "UP" : "DOWN")} ${Math.round(absDev * 100)}pts (${Math.round(Math.max(upPrice, downPrice) * 100)}%). Following market.`,
     };
   },
 
@@ -407,10 +441,11 @@ const Senses = {
     if (!globalTrades || !globalTrades.length) return null;
 
     // Get recent trades for this market
+    // Collector saves: { t (timestamp), market (slug), side, size, price, outcome, timestamp (trade ts) }
     const now = Date.now();
-    const recentTrades = globalTrades.filter(t =>
-      (t.market === market.slug || t.market === market.conditionId) &&
-      (now - t.ts) < 120000 // last 2 minutes
+    const recentTrades = globalTrades.filter(tr =>
+      (tr.market === market.slug || tr.market === market.conditionId) &&
+      (now - (tr.t || tr.ts || 0)) < 120000
     );
 
     if (recentTrades.length < 5) return null;
@@ -418,11 +453,12 @@ const Senses = {
     // Calculate buy/sell pressure
     let buyVol = 0, sellVol = 0;
     let yesBuys = 0, noBuys = 0;
-    for (const t of recentTrades) {
-      const size = parseFloat(t.size) || 0;
-      if (t.side === "BUY") {
+    for (const tr of recentTrades) {
+      const size = parseFloat(tr.size) || 0;
+      if (tr.side === "BUY") {
         buyVol += size;
-        if (t.outcome === "Yes") yesBuys += size;
+        const isYes = tr.outcome === "Yes" || tr.outcome === "UP" || tr.outcome === "Up";
+        if (isYes) yesBuys += size;
         else noBuys += size;
       } else {
         sellVol += size;
@@ -636,17 +672,24 @@ const Cortex = {
     const issues = [];
 
     if (timeLeftSec < 60) issues.push(`Only ${timeLeftSec}s left — too late to enter`);
-    if (timeLeftSec > 210) issues.push(`${timeLeftSec}s left (${300 - timeLeftSec}s elapsed) — too early, prices still settling`);
+    if (timeLeftSec > 290) issues.push(`${timeLeftSec}s left — too early`);
     if (!market.priceToBeat) issues.push("No Price to Beat yet — market hasn't started");
 
     const volume = parseFloat(market.volume) || 0;
-    if (volume < 200) issues.push(`Low volume ($${volume.toFixed(0)}) — hard to exit`);
+    if (volume < 50) issues.push(`Low volume ($${volume.toFixed(0)}) — no market activity`);
 
     const liquidity = parseFloat(market.liquidity) || 0;
-    if (liquidity < 200) issues.push(`Low liquidity ($${liquidity.toFixed(0)}) — slippage risk`);
+    if (liquidity < 50) issues.push(`Low liquidity ($${liquidity.toFixed(0)}) — cannot trade`);
 
-    const spread = Math.abs((market.upPrice || 0.5) + (market.downPrice || 0.5) - 1);
-    if (spread > 0.12) issues.push(`Wide spread (${(spread * 100).toFixed(1)}%) — expensive`);
+    // Real bid-ask spread from orderbook (passed via market.bookSpread)
+    const bookSpread = parseFloat(market.bookSpread) || 0;
+    if (bookSpread > 0.10) issues.push(`Wide spread (${(bookSpread * 100).toFixed(1)}%) — slippage will eat profits`);
+
+    // Book depth — need enough levels to enter and exit
+    const askDepth = parseInt(market.askDepth) || 0;
+    const bidDepth = parseInt(market.bidDepth) || 0;
+    if (askDepth < 3) issues.push(`Ask book too thin (${askDepth} levels) — heavy slippage on entry`);
+    if (bidDepth < 3) issues.push(`Bid book too thin (${bidDepth} levels) — can't exit cleanly`);
 
     return {
       pass: issues.length === 0,
@@ -659,7 +702,7 @@ const Cortex = {
    * Paul Tudor Jones: "The most important rule of trading is to play great defense."
    */
   checkDailyDrawdown(memory, bankroll) {
-    const maxDailyLoss = bankroll * 0.20; // 20% max daily drawdown
+    const maxDailyLoss = bankroll * 0.95; // Effectively disabled — testing mode
     if (memory.stats.todayPnl < -maxDailyLoss) {
       return {
         canTrade: false,
@@ -709,6 +752,8 @@ function analyze(params) {
     globalTrades = [],
     patterns = null,
   } = params;
+
+  console.log(`[brain] analyze: btcPrice=${btcPrice} priceToBeat=${market?.priceToBeat} upPrice=${market?.upPrice} downPrice=${market?.downPrice} timeLeft=${timeLeftSec}s odds=${oddsHistory?.length} whales=${whaleData?.length} trades=${globalTrades?.length}`);
 
   const memory = loadMemory();
   const stage = IDENTITY.getCurrentStage(memory);
@@ -763,14 +808,17 @@ function analyze(params) {
   decision.meta.regime = regime;
 
   // ── Collect all signals from senses ──
-  const rawSignals = [
-    Senses.crowdFade(market),
-    Senses.momentum(market, btcPrice, timeLeftSec),
-    Senses.whaleFollow(whaleData),
-    Senses.oddsShift(oddsHistory, market),
-    Senses.meanReversion(market, btcPrice, oddsHistory),
-    Senses.volumeSpike(globalTrades, market),
-  ].filter(s => s && typeof s.confidence === "number" && !isNaN(s.confidence) && s.confidence > 0);
+  const _cf = Senses.crowdFade(market);
+  const _mo = Senses.momentum(market, btcPrice, timeLeftSec);
+  const _wh = Senses.whaleFollow(whaleData);
+  const _os = Senses.oddsShift(oddsHistory, market);
+  const _ob = Senses.oddsBias(market, timeLeftSec);
+  const _mr = Senses.meanReversion(market, btcPrice, oddsHistory);
+  const _vs = Senses.volumeSpike(globalTrades, market);
+  console.log(`[brain] signals → crowdFade=${JSON.stringify(_cf)} momentum=${JSON.stringify(_mo)} oddsBias=${JSON.stringify(_ob)} whaleFollow=${JSON.stringify(_wh)} oddsShift=${JSON.stringify(_os)} meanReversion=${JSON.stringify(_mr)} volumeSpike=${JSON.stringify(_vs)}`);
+
+  const rawSignals = [_cf, _mo, _wh, _os, _ob, _mr, _vs]
+    .filter(s => s && typeof s.confidence === "number" && !isNaN(s.confidence) && s.confidence > 0);
 
   if (rawSignals.length === 0) {
     decision.reason = "No signals detected. Market is ambiguous — sitting out.";
@@ -862,13 +910,9 @@ function analyze(params) {
   const tokenPrice = dominant === "YES" ? market.upPrice : market.downPrice;
   let amount = Cortex.kellySize(finalConfidence, tokenPrice || 0.5, bankroll, stage);
 
-  // Student stage: always bet at least $1 for learning — override Kelly minimum
-  if (amount < 1 && stage.name === "Student") {
+  // Always bet at least $1 (Polymarket minimum). Evolution controls MAX bet, not min.
+  if (amount < 1) {
     amount = 1.0;
-  } else if (amount < 1) {
-    decision.reason = "Kelly says edge too small for minimum $1 bet. Skipping.";
-    decision.confidence = finalConfidence;
-    return decision;
   }
 
   // ── Final decision: GO ──
@@ -982,7 +1026,7 @@ function recordTrade(trade) {
   }
 
   // ── Sliding window of recent trades ──
-  memory.recentTrades.push({
+  const tradeRecord = {
     ts: Date.now(),
     side: trade.side,
     amount: trade.amount,
@@ -992,10 +1036,25 @@ function recordTrade(trade) {
     confidence: trade.confidence,
     strategies: trade.strategies,
     regime: trade.regime,
-  });
+    asset: trade.asset || "BTC",
+    timeLeftAtEntry: trade.timeLeftAtEntry || null,
+    spreadAtEntry: trade.spreadAtEntry || null,
+    cryptoPrice: trade.cryptoPrice || null,
+    priceToBeat: trade.priceToBeat || null,
+    entryPrice: trade.price || null,
+    exitType: trade.exitType || "resolution",
+    signalStrength: trade.signalStrength || null,
+    hour: new Date().getHours(),
+    dayOfWeek: new Date().getDay(),
+  };
+
+  memory.recentTrades.push(tradeRecord);
   if (memory.recentTrades.length > 20) {
     memory.recentTrades = memory.recentTrades.slice(-20);
   }
+
+  // ── FULL HISTORY — never truncated, used for statistical analysis ──
+  appendTradeHistory(tradeRecord);
 
   saveMemory(memory);
 
@@ -1094,6 +1153,260 @@ function getStatus() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+//  FULL TRADE HISTORY — permanent log for statistical analysis
+// ═══════════════════════════════════════════════════════════════
+
+const HISTORY_FILE = path.join(__dirname, "..", "trades", "full-history.json");
+
+function loadTradeHistory() {
+  try {
+    if (fs.existsSync(HISTORY_FILE)) {
+      return JSON.parse(fs.readFileSync(HISTORY_FILE, "utf8"));
+    }
+  } catch (e) { /* corrupt file, start fresh */ }
+  return [];
+}
+
+function appendTradeHistory(record) {
+  try {
+    const history = loadTradeHistory();
+    history.push(record);
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(history, null, 2));
+  } catch (e) {
+    console.error("[brain] Failed to append trade history:", e.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  EDGE ANALYZER — statistical analysis after N trades
+// ═══════════════════════════════════════════════════════════════
+
+function analyzeEdge() {
+  const trades = loadTradeHistory();
+  if (trades.length < 10) {
+    return { error: "Need at least 10 trades for analysis", tradeCount: trades.length };
+  }
+
+  const n = trades.length;
+  const wins = trades.filter(t => t.won).length;
+  const losses = n - wins;
+  const wr = wins / n;
+
+  // ── Wilson Score Interval (95% CI for true win rate) ──
+  const z = 1.96;
+  const phat = wr;
+  const denom = 1 + z * z / n;
+  const center = (phat + z * z / (2 * n)) / denom;
+  const margin = (z / denom) * Math.sqrt((phat * (1 - phat) + z * z / (4 * n)) / n);
+  const ciLow = Math.max(0, center - margin);
+  const ciHigh = Math.min(1, center + margin);
+
+  // ── Expected Value per $1 bet ──
+  const avgWinPnl = trades.filter(t => t.won).reduce((s, t) => s + t.pnl, 0) / (wins || 1);
+  const avgLossPnl = trades.filter(t => !t.won).reduce((s, t) => s + t.pnl, 0) / (losses || 1);
+  const ev = wr * avgWinPnl + (1 - wr) * avgLossPnl;
+
+  // ── Kelly Criterion (optimal bet fraction) ──
+  const avgWinRatio = wins > 0 ? avgWinPnl / (trades.filter(t => t.won).reduce((s, t) => s + (t.price || 0.50), 0) / wins) : 0;
+  const avgLossRatio = losses > 0 ? Math.abs(avgLossPnl) / (trades.filter(t => !t.won).reduce((s, t) => s + (t.price || 0.50), 0) / losses) : 1;
+  const b = avgLossRatio > 0 ? avgWinRatio / avgLossRatio : 0;
+  const kellyFraction = b > 0 ? Math.max(0, (b * wr - (1 - wr)) / b) : 0;
+
+  // ── Win Rate by Asset ──
+  const byAsset = {};
+  trades.forEach(t => {
+    const a = t.asset || "BTC";
+    if (!byAsset[a]) byAsset[a] = { wins: 0, losses: 0, pnl: 0, n: 0 };
+    byAsset[a].n++;
+    byAsset[a].pnl += t.pnl;
+    if (t.won) byAsset[a].wins++; else byAsset[a].losses++;
+  });
+  Object.keys(byAsset).forEach(a => { byAsset[a].wr = byAsset[a].wins / byAsset[a].n; });
+
+  // ── Win Rate by Hour ──
+  const byHour = {};
+  trades.forEach(t => {
+    const h = t.hour != null ? t.hour.toString() : new Date(t.ts).getHours().toString();
+    if (!byHour[h]) byHour[h] = { wins: 0, losses: 0, n: 0 };
+    byHour[h].n++;
+    if (t.won) byHour[h].wins++; else byHour[h].losses++;
+  });
+  Object.keys(byHour).forEach(h => { byHour[h].wr = byHour[h].wins / byHour[h].n; });
+
+  // ── Win Rate by Entry Price Bucket ──
+  const byPrice = { "0.40-0.45": { w: 0, l: 0 }, "0.45-0.48": { w: 0, l: 0 }, "0.48-0.50": { w: 0, l: 0 }, "0.50-0.52": { w: 0, l: 0 }, "0.52+": { w: 0, l: 0 } };
+  trades.forEach(t => {
+    const p = t.price || 0.50;
+    let bucket;
+    if (p < 0.45) bucket = "0.40-0.45";
+    else if (p < 0.48) bucket = "0.45-0.48";
+    else if (p < 0.50) bucket = "0.48-0.50";
+    else if (p < 0.52) bucket = "0.50-0.52";
+    else bucket = "0.52+";
+    if (t.won) byPrice[bucket].w++; else byPrice[bucket].l++;
+  });
+  Object.keys(byPrice).forEach(b => {
+    const tot = byPrice[b].w + byPrice[b].l;
+    byPrice[b].wr = tot > 0 ? byPrice[b].w / tot : null;
+    byPrice[b].n = tot;
+  });
+
+  // ── Win Rate by Side (YES vs NO) ──
+  const bySide = { YES: { w: 0, l: 0 }, NO: { w: 0, l: 0 } };
+  trades.forEach(t => {
+    const s = t.side === "YES" || t.side === "UP" ? "YES" : "NO";
+    if (t.won) bySide[s].w++; else bySide[s].l++;
+  });
+  Object.keys(bySide).forEach(s => {
+    const tot = bySide[s].w + bySide[s].l;
+    bySide[s].wr = tot > 0 ? bySide[s].w / tot : null;
+    bySide[s].n = tot;
+  });
+
+  // ── Win Rate by Confidence Bucket ──
+  const byConf = { "0-20%": { w: 0, l: 0 }, "20-40%": { w: 0, l: 0 }, "40-60%": { w: 0, l: 0 }, "60-80%": { w: 0, l: 0 }, "80-100%": { w: 0, l: 0 } };
+  trades.forEach(t => {
+    const c = (t.confidence || 0) * 100;
+    let bucket;
+    if (c < 20) bucket = "0-20%";
+    else if (c < 40) bucket = "20-40%";
+    else if (c < 60) bucket = "40-60%";
+    else if (c < 80) bucket = "60-80%";
+    else bucket = "80-100%";
+    if (t.won) byConf[bucket].w++; else byConf[bucket].l++;
+  });
+  Object.keys(byConf).forEach(b => {
+    const tot = byConf[b].w + byConf[b].l;
+    byConf[b].wr = tot > 0 ? byConf[b].w / tot : null;
+    byConf[b].n = tot;
+  });
+
+  // ── Win Rate by Strategy Signal ──
+  const bySignal = {};
+  trades.forEach(t => {
+    (t.strategies || []).forEach(s => {
+      if (!bySignal[s]) bySignal[s] = { w: 0, l: 0, pnl: 0 };
+      if (t.won) bySignal[s].w++; else bySignal[s].l++;
+      bySignal[s].pnl += t.pnl;
+    });
+  });
+  Object.keys(bySignal).forEach(s => {
+    const tot = bySignal[s].w + bySignal[s].l;
+    bySignal[s].wr = tot > 0 ? bySignal[s].w / tot : null;
+    bySignal[s].n = tot;
+  });
+
+  // ── Win Rate by Day of Week ──
+  const byDay = {};
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  trades.forEach(t => {
+    const d = t.dayOfWeek != null ? dayNames[t.dayOfWeek] : dayNames[new Date(t.ts).getDay()];
+    if (!byDay[d]) byDay[d] = { w: 0, l: 0 };
+    if (t.won) byDay[d].w++; else byDay[d].l++;
+  });
+  Object.keys(byDay).forEach(d => {
+    const tot = byDay[d].w + byDay[d].l;
+    byDay[d].wr = tot > 0 ? byDay[d].w / tot : null;
+    byDay[d].n = tot;
+  });
+
+  // ── Win Rate by Time Left at Entry ──
+  const byTimeLeft = { "60-120s": { w: 0, l: 0 }, "120-180s": { w: 0, l: 0 }, "180-240s": { w: 0, l: 0 }, "240s+": { w: 0, l: 0 } };
+  trades.forEach(t => {
+    if (t.timeLeftAtEntry == null) return;
+    let bucket;
+    if (t.timeLeftAtEntry < 120) bucket = "60-120s";
+    else if (t.timeLeftAtEntry < 180) bucket = "120-180s";
+    else if (t.timeLeftAtEntry < 240) bucket = "180-240s";
+    else bucket = "240s+";
+    if (t.won) byTimeLeft[bucket].w++; else byTimeLeft[bucket].l++;
+  });
+  Object.keys(byTimeLeft).forEach(b => {
+    const tot = byTimeLeft[b].w + byTimeLeft[b].l;
+    byTimeLeft[b].wr = tot > 0 ? byTimeLeft[b].w / tot : null;
+    byTimeLeft[b].n = tot;
+  });
+
+  // ── Streak Analysis ──
+  let maxWinStreak = 0, maxLossStreak = 0, curStreak = 0;
+  trades.forEach(t => {
+    if (t.won) { curStreak = curStreak > 0 ? curStreak + 1 : 1; maxWinStreak = Math.max(maxWinStreak, curStreak); }
+    else { curStreak = curStreak < 0 ? curStreak - 1 : -1; maxLossStreak = Math.max(maxLossStreak, Math.abs(curStreak)); }
+  });
+
+  // ── Recommendations ──
+  const recommendations = [];
+
+  // Best asset
+  const bestAsset = Object.entries(byAsset).sort((a, b) => b[1].wr - a[1].wr)[0];
+  if (bestAsset && bestAsset[1].n >= 10) {
+    recommendations.push(`Best asset: ${bestAsset[0]} (${(bestAsset[1].wr * 100).toFixed(1)}% WR, n=${bestAsset[1].n})`);
+  }
+
+  // Best hours (WR > 55% with n >= 5)
+  const goodHours = Object.entries(byHour).filter(([, v]) => v.wr > 0.55 && v.n >= 5).sort((a, b) => b[1].wr - a[1].wr);
+  if (goodHours.length > 0) {
+    recommendations.push(`Best hours: ${goodHours.map(([h, v]) => `${h}:00 (${(v.wr * 100).toFixed(0)}%, n=${v.n})`).join(", ")}`);
+  }
+
+  // Bad hours (WR < 45% with n >= 5)
+  const badHours = Object.entries(byHour).filter(([, v]) => v.wr < 0.45 && v.n >= 5).sort((a, b) => a[1].wr - b[1].wr);
+  if (badHours.length > 0) {
+    recommendations.push(`Avoid hours: ${badHours.map(([h, v]) => `${h}:00 (${(v.wr * 100).toFixed(0)}%, n=${v.n})`).join(", ")}`);
+  }
+
+  // Best entry price range
+  const bestPrice = Object.entries(byPrice).filter(([, v]) => v.n >= 5).sort((a, b) => (b[1].wr || 0) - (a[1].wr || 0))[0];
+  if (bestPrice) {
+    recommendations.push(`Best entry price: $${bestPrice[0]} (${(bestPrice[1].wr * 100).toFixed(0)}% WR, n=${bestPrice[1].n})`);
+  }
+
+  // Side bias
+  if (bySide.YES.n >= 10 && bySide.NO.n >= 10) {
+    const diff = Math.abs(bySide.YES.wr - bySide.NO.wr);
+    if (diff > 0.05) {
+      const better = bySide.YES.wr > bySide.NO.wr ? "YES/UP" : "NO/DOWN";
+      recommendations.push(`Side bias: ${better} is ${(diff * 100).toFixed(1)}pp better`);
+    }
+  }
+
+  // Required WR for profitability
+  const avgEntry = trades.reduce((s, t) => s + (t.price || 0.50), 0) / n;
+  const breakEvenWR = avgEntry; // at $0.50 entry, need 50% WR; at $0.48 need 48%
+  recommendations.push(`Break-even WR at avg entry $${avgEntry.toFixed(3)}: ${(breakEvenWR * 100).toFixed(1)}%`);
+
+  const profitable = wr > breakEvenWR;
+  if (profitable) {
+    recommendations.push(`EDGE DETECTED: WR ${(wr * 100).toFixed(1)}% > break-even ${(breakEvenWR * 100).toFixed(1)}%`);
+  } else {
+    recommendations.push(`NO EDGE YET: WR ${(wr * 100).toFixed(1)}% < break-even ${(breakEvenWR * 100).toFixed(1)}%`);
+  }
+
+  return {
+    summary: {
+      totalTrades: n,
+      wins, losses,
+      winRate: wr,
+      winRateCI95: `${(ciLow * 100).toFixed(1)}% - ${(ciHigh * 100).toFixed(1)}%`,
+      totalPnl: trades.reduce((s, t) => s + t.pnl, 0),
+      avgPnlPerTrade: ev,
+      avgWinPnl, avgLossPnl,
+      kellyFraction: kellyFraction,
+      kellyBetSize: kellyFraction > 0 ? `$${(kellyFraction * 100).toFixed(1)} per $100 bankroll` : "Don't bet (no edge)",
+      profitable,
+      maxWinStreak, maxLossStreak,
+    },
+    breakdown: {
+      byAsset, byHour, byPrice, bySide, byConf, bySignal, byDay, byTimeLeft,
+    },
+    recommendations,
+    sampleSize: n,
+    minRecommended: 100,
+    confidence: n >= 200 ? "HIGH" : n >= 100 ? "MEDIUM" : n >= 50 ? "LOW" : "INSUFFICIENT",
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
 //  EXPORTS
 // ═══════════════════════════════════════════════════════════════
 
@@ -1104,6 +1417,8 @@ module.exports = {
   getStatus,
   loadMemory,
   saveMemory,
+  analyzeEdge,
+  loadTradeHistory,
   SOUL,
   IDENTITY,
   Senses,

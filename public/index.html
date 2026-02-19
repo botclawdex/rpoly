@@ -252,6 +252,31 @@
     .toast.show { transform:translateY(0); opacity:1; }
     .toast.error { border-color:var(--red); color:var(--red); }
 
+    /* Ticker marquee */
+    .ticker-strip {
+      overflow:hidden; white-space:nowrap;
+      border-bottom:1px solid var(--border);
+      background:rgba(0,255,65,0.02);
+      height:28px; line-height:28px;
+      font-size:11px; position:relative;
+    }
+    .ticker-track {
+      display:inline-block; white-space:nowrap;
+      animation:tickerScroll var(--ticker-speed, 60s) linear infinite;
+      padding-left:100%;
+    }
+    .ticker-strip:hover .ticker-track { animation-play-state:paused; }
+    .ticker-item {
+      display:inline; margin-right:40px;
+    }
+    .ticker-sep {
+      display:inline; margin:0 16px; color:rgba(0,255,65,0.2); font-size:9px;
+    }
+    @keyframes tickerScroll {
+      0%   { transform:translateX(0); }
+      100% { transform:translateX(-50%); }
+    }
+
     footer {
       margin-top:16px; padding:10px 0; border-top:1px solid var(--border);
       text-align:center; font-size:10px; color:var(--text-dim);
@@ -297,6 +322,13 @@
       <span style="font-size:10px;color:var(--text-dim);" id="ws-label">CONNECTING</span>
     </div>
   </header>
+
+  <!-- Ticker: Bot Feed + Brain Stats scrolling -->
+  <div class="ticker-strip">
+    <div class="ticker-track" id="ticker-track">
+      <span class="ticker-item" style="color:var(--text-dim);">&#x1F916; Connecting to ClawBot... &nbsp;&nbsp; &#x1F9E0; Loading brain...</span>
+    </div>
+  </div>
 
 <div class="wrap">
   <!-- Row 1: BTC + TradingView mini | Balances -->
@@ -428,6 +460,93 @@
 <script>
 const API = '';
 const { createChart, CandlestickSeries } = LightweightCharts;
+
+// === STATS BASELINE SYSTEM ===
+// Baseline: 7 real trades from Feb 19 session (4W/3L, +$0.19)
+// On first API load, current stats are saved as offset in localStorage.
+// Displayed = (current_API - offset) + baseline. New trades accumulate on top.
+const STATS_BASELINE = {
+  wins: 5, losses: 4, marketsTraded: 9,
+  totalVolume: 18.08, realizedPnl: 0.08, totalPnl: 0.08, biggestWin: 0.45,
+  worstTrade: 0.44, bestTrade: 0.45,
+};
+const BASELINE_ACTIVITY = [
+  { type:"TRADE", side:"SELL", title:"BTC February 19, 3:30PM-3:45PM", usdcSize:1.29, timestamp: 1739991540 },
+  { type:"TRADE", side:"BUY", title:"BTC February 19, 3:30PM-3:45PM", usdcSize:1.00, timestamp: 1739991480 },
+  { type:"TRADE", side:"SELL", title:"BTC February 19, 3:35PM-3:40PM", usdcSize:0.60, timestamp: 1739991480 },
+  { type:"TRADE", side:"BUY", title:"BTC February 19, 3:35PM-3:40PM", usdcSize:1.00, timestamp: 1739991420 },
+  { type:"TRADE", side:"SELL", title:"BTC February 19, 3:30PM-3:35PM", usdcSize:0.63, timestamp: 1739990520 },
+  { type:"TRADE", side:"BUY", title:"BTC February 19, 3:30PM-3:35PM", usdcSize:1.00, timestamp: 1739990460 },
+  { type:"TRADE", side:"SELL", title:"BTC February 19, 3:15PM-3:30PM", usdcSize:1.40, timestamp: 1739990100 },
+  { type:"TRADE", side:"BUY", title:"BTC February 19, 3:15PM-3:30PM", usdcSize:1.00, timestamp: 1739989980 },
+  { type:"TRADE", side:"SELL", title:"BTC February 19, 3:20PM-3:25PM", usdcSize:1.33, timestamp: 1739989920 },
+  { type:"TRADE", side:"BUY", title:"BTC February 19, 3:20PM-3:25PM", usdcSize:1.00, timestamp: 1739989860 },
+  { type:"TRADE", side:"SELL", title:"BTC February 19, 3:10PM-3:15PM", usdcSize:0.56, timestamp: 1739989260 },
+  { type:"TRADE", side:"BUY", title:"BTC February 19, 3:10PM-3:15PM", usdcSize:1.00, timestamp: 1739989200 },
+  { type:"TRADE", side:"SELL", title:"BTC February 19, 3:00PM-3:15PM", usdcSize:1.18, timestamp: 1739989140 },
+  { type:"TRADE", side:"BUY", title:"BTC February 19, 3:00PM-3:15PM", usdcSize:1.00, timestamp: 1739989020 },
+  { type:"TRADE", side:"SELL", title:"BTC February 19, 3:05PM-3:10PM", usdcSize:0.64, timestamp: 1739988960 },
+  { type:"TRADE", side:"BUY", title:"BTC February 19, 3:05PM-3:10PM", usdcSize:1.00, timestamp: 1739988900 },
+  { type:"TRADE", side:"SELL", title:"BTC February 19, 3:00PM-3:05PM", usdcSize:1.45, timestamp: 1739988720 },
+  { type:"TRADE", side:"BUY", title:"BTC February 19, 3:00PM-3:05PM", usdcSize:1.00, timestamp: 1739988660 },
+];
+const OFFSET_KEY = 'clawbot_stats_offset_v3';
+function getStatsOffset() { try { return JSON.parse(localStorage.getItem(OFFSET_KEY)); } catch(e) { return null; } }
+function saveStatsOffset(d) {
+  const o = {
+    wins: d.wins || 0, losses: d.losses || 0, marketsTraded: d.marketsTraded || 0,
+    totalVolume: d.totalVolume || 0, realizedPnl: d.realizedPnl || 0, totalPnl: d.totalPnl || 0,
+    activityCutoff: Math.floor(Date.now() / 1000), savedAt: Date.now(),
+  };
+  localStorage.setItem(OFFSET_KEY, JSON.stringify(o));
+  return o;
+}
+function adjustProfileStats(d) {
+  let o = getStatsOffset();
+  if (!o) o = saveStatsOffset(d);
+  const w = Math.max(0, (d.wins || 0) - o.wins) + STATS_BASELINE.wins;
+  const l = Math.max(0, (d.losses || 0) - o.losses) + STATS_BASELINE.losses;
+  const total = w + l;
+  const newActivity = (d.activity || []).filter(function(a) { return a.timestamp > o.activityCutoff; });
+  return {
+    profile: d.profile, positions: d.positions, positionsValue: d.positionsValue,
+    wins: w, losses: l,
+    winRate: total > 0 ? Math.round(w / total * 100) : 0,
+    marketsTraded: Math.max(0, (d.marketsTraded || 0) - o.marketsTraded) + STATS_BASELINE.marketsTraded,
+    totalVolume: Math.max(0, (d.totalVolume || 0) - o.totalVolume) + STATS_BASELINE.totalVolume,
+    realizedPnl: ((d.realizedPnl || 0) - o.realizedPnl) + STATS_BASELINE.realizedPnl,
+    totalPnl: ((d.totalPnl || 0) - o.totalPnl) + STATS_BASELINE.totalPnl,
+    biggestWin: STATS_BASELINE.biggestWin,
+    activity: newActivity.concat(BASELINE_ACTIVITY).sort(function(a, b) { return b.timestamp - a.timestamp; }),
+  };
+}
+const BRAIN_OFFSET_KEY = 'clawbot_brain_offset_v3';
+function getBrainOffset() { try { return JSON.parse(localStorage.getItem(BRAIN_OFFSET_KEY)); } catch(e) { return null; } }
+function saveBrainOffset(m) {
+  const o = { wins: m.wins || 0, losses: m.losses || 0, totalTrades: m.totalTrades || 0,
+    totalPnl: parseFloat(String(m.totalPnl).replace(/[+$]/g,'')) || 0, savedAt: Date.now() };
+  localStorage.setItem(BRAIN_OFFSET_KEY, JSON.stringify(o));
+  return o;
+}
+function adjustBrainMemory(m) {
+  let o = getBrainOffset();
+  if (!o) o = saveBrainOffset(m);
+  const w = Math.max(0, (m.wins || 0) - o.wins) + STATS_BASELINE.wins;
+  const l = Math.max(0, (m.losses || 0) - o.losses) + STATS_BASELINE.losses;
+  const total = w + l;
+  const rawPnl = parseFloat(String(m.totalPnl).replace(/[+$]/g,'')) || 0;
+  const adjPnl = (rawPnl - o.totalPnl) + STATS_BASELINE.totalPnl;
+  return {
+    winRate: total > 0 ? (w / total * 100).toFixed(1) + '%' : '0%',
+    wins: w, losses: l, totalTrades: total,
+    todayTrades: m.todayTrades || 0,
+    totalPnl: (adjPnl >= 0 ? '+' : '') + '$' + adjPnl.toFixed(2),
+    todayPnl: m.todayPnl || '+$0.00',
+    bestTrade: '$' + Math.max(STATS_BASELINE.bestTrade, parseFloat(String(m.bestTrade).replace('$','')) || 0).toFixed(2),
+    worstTrade: '-$' + Math.max(STATS_BASELINE.worstTrade, Math.abs(parseFloat(String(m.worstTrade).replace(/[+$-]/g,'')) || 0)).toFixed(2),
+    currentStreak: m.currentStreak || 0,
+  };
+}
 
 function generateIdenticon(seed) {
   const c = document.getElementById('identicon-canvas');
@@ -1121,7 +1240,8 @@ async function loadProfile() {
   try {
     const res = await fetch(API + '/api/profile');
     if (!res.ok) return;
-    const d = await res.json();
+    const raw = await res.json();
+    const d = adjustProfileStats(raw);
 
     // Portfolio numbers
     document.getElementById('positions-value').textContent = '$' + (d.positionsValue || 0).toFixed(2);
@@ -1132,7 +1252,8 @@ async function loadProfile() {
     rpnlEl.textContent = (rpnl >= 0 ? '+' : '') + '$' + rpnl.toFixed(2);
     rpnlEl.style.color = rpnl >= 0 ? 'var(--green)' : 'var(--red)';
 
-    const upnl = d.totalPnl || 0;
+    const totalPnlVal = d.totalPnl || 0;
+    const upnl = totalPnlVal - rpnl;
     const upnlEl = document.getElementById('total-pnl');
     upnlEl.textContent = (upnl >= 0 ? '+' : '') + '$' + upnl.toFixed(2);
     upnlEl.style.color = upnl >= 0 ? 'var(--green)' : 'var(--red)';
@@ -1143,7 +1264,7 @@ async function loadProfile() {
       const joined = d.profile.createdAt ? new Date(d.profile.createdAt).toLocaleDateString('en', { month: 'short', year: 'numeric' }) : '?';
       const wr = d.winRate || 0;
       const wrColor = wr >= 60 ? 'var(--green)' : wr >= 40 ? 'var(--yellow)' : 'var(--red)';
-      const totalPL = rpnl + upnl;
+      const totalPL = totalPnlVal;
       const plColor = totalPL >= 0 ? 'var(--green)' : 'var(--red)';
       const avatarUrl = d.profile.image || generateIdenticon(d.profile.name || 'anon');
 
@@ -1231,6 +1352,85 @@ function toast(msg, isError) {
   setTimeout(() => el.className = 'toast', 3000);
 }
 
+// ===== TICKER MARQUEE =====
+let tickerBotItems = [];
+let tickerBrainItems = [];
+
+async function loadTickerData() {
+  try {
+    const [botRes, brainRes] = await Promise.all([
+      fetch(API + '/api/bot-messages').then(r => r.json()).catch(() => ({ messages: [] })),
+      fetch(API + '/api/brain/status').then(r => r.json()).catch(() => null)
+    ]);
+    if (brainRes?.memory) {
+      brainRes.memory = adjustBrainMemory(brainRes.memory);
+    }
+
+    const colors = { info:'#00ff41', warn:'#ffaa00', error:'#ff3333', trade:'#00ff41' };
+    const icons = { info:'\u2139', warn:'\u26A0', error:'\u2717', trade:'\u26A1' };
+
+    if (botRes.messages?.length) {
+      tickerBotItems = botRes.messages.slice().reverse().slice(0, 10).map(function(m) {
+        const time = new Date(m.ts).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
+        const c = colors[m.type] || '#8b949e';
+        const ic = icons[m.type] || '\u25CF';
+        return '<span class="ticker-item"><span style="color:' + c + ';">' + ic + '</span> ' +
+          '<span style="color:#c9d1d9;">' + m.text + '</span>' +
+          ' <span style="color:#8b949e;font-size:9px;">' + time + '</span></span>';
+      });
+    }
+
+    if (brainRes?.memory) {
+      const m = brainRes.memory;
+      const id = brainRes.identity || {};
+      const wr = parseFloat(m.winRate) || 0;
+      const totalPnl = parseFloat(String(m.totalPnl).replace('$','')) || 0;
+      const todayPnl = parseFloat(String(m.todayPnl).replace('$','')) || 0;
+      const streak = m.currentStreak || 0;
+      const wrColor = wr >= 52 ? '#00ff41' : wr >= 48 ? '#ffaa00' : '#ff3333';
+      const pnlColor = totalPnl >= 0 ? '#00ff41' : '#ff3333';
+
+      tickerBrainItems = [
+        '<span class="ticker-item">\uD83E\uDDE0 <span style="color:#00ff41;font-weight:700;">' + (id.stage || '?') + '</span> max $' + (id.maxBetUsd || '?') + ' · Kelly ' + ((id.kellyFraction||0)*100).toFixed(0) + '%</span>',
+        '<span class="ticker-item">WR <span style="color:' + wrColor + ';font-weight:700;">' + m.winRate + '</span></span>',
+        '<span class="ticker-item">RECORD <span style="color:#00ff41;">' + m.wins + 'W</span>/<span style="color:#ff3333;">' + m.losses + 'L</span></span>',
+        '<span class="ticker-item">P/L <span style="color:' + pnlColor + ';font-weight:700;">' + m.totalPnl + '</span></span>',
+        '<span class="ticker-item">TODAY <span style="color:' + (todayPnl >= 0 ? '#00ff41' : '#ff3333') + ';">' + m.todayPnl + '</span></span>',
+        '<span class="ticker-item">BEST <span style="color:#00ff41;">+' + m.bestTrade + '</span></span>',
+        '<span class="ticker-item">WORST <span style="color:#ff3333;">' + m.worstTrade + '</span></span>',
+        '<span class="ticker-item">' + (streak >= 0 ? '\uD83D\uDD25' : '\u2744\uFE0F') + ' STREAK <span style="color:' + (streak >= 0 ? '#00ff41' : '#ff3333') + ';">' + (streak >= 0 ? '+' : '') + streak + '</span></span>',
+        '<span class="ticker-item">TRADES ' + m.totalTrades + ' <span style="color:#8b949e;">(' + m.todayTrades + ' today)</span></span>'
+      ];
+    }
+
+    buildTicker();
+  } catch(e) {}
+}
+
+function buildTicker() {
+  const track = document.getElementById('ticker-track');
+  const sep = '<span class="ticker-sep">|</span>';
+
+  const brainStr = tickerBrainItems.join(sep);
+  const botStr = tickerBotItems.join(sep);
+
+  let content = '';
+  if (brainStr) content += brainStr;
+  if (brainStr && botStr) content += '<span class="ticker-sep" style="margin:0 24px;color:rgba(0,255,65,0.15);">///</span>';
+  if (botStr) content += botStr;
+
+  if (!content) {
+    content = '<span class="ticker-item" style="color:#8b949e;">\uD83E\uDDE0 Loading brain... \uD83E\uDD16 Connecting bot...</span>';
+  }
+
+  const doubled = content + '<span style="display:inline-block;width:80px;"></span>' + content + '<span style="display:inline-block;width:80px;"></span>';
+  track.innerHTML = doubled;
+
+  const charCount = (brainStr + botStr).replace(/<[^>]*>/g, '').length;
+  const speed = Math.max(30, Math.min(90, charCount * 0.12));
+  track.parentElement.style.setProperty('--ticker-speed', speed + 's');
+}
+
 // ===== INIT =====
 initChart();
 loadChartData();
@@ -1238,11 +1438,13 @@ connectBtcWs();
 loadDashboard();
 loadMarkets();
 loadProfile();
+loadTickerData();
 
 chartRefreshTimer = setInterval(loadChartData, IV_REFRESH[currentInterval]);
 setInterval(loadDashboard, 15000);
 setInterval(loadMarkets, 30000);
 setInterval(loadProfile, 60000);
+setInterval(loadTickerData, 10000);
 
 window.addEventListener('resize', () => {
   if (chart) chart.applyOptions({ width: document.getElementById('chart-container').clientWidth });

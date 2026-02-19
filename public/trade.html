@@ -318,6 +318,14 @@
           </div>
         </div>
 
+        <!-- Brain Stats -->
+        <div class="card" style="margin-bottom:12px;">
+          <div class="card-label">🧠 Brain Stats</div>
+          <div id="brain-stats" style="font-size:10px;">
+            <div style="color:var(--text-dim);text-align:center;padding:8px 0;">Loading...</div>
+          </div>
+        </div>
+
         <!-- Bot Messages History -->
         <div class="card">
           <div class="card-label">&#x1F916; ClawBot Feed</div>
@@ -714,9 +722,72 @@ async function loadBotMessages() {
   } catch (e) {}
 }
 
+// Brain stats
+async function loadBrainStats() {
+  try {
+    const res = await fetch(API + '/api/brain/status');
+    const d = await res.json();
+    const el = document.getElementById('brain-stats');
+    if (!d || !d.memory) { el.innerHTML = '<div style="color:var(--text-dim);text-align:center;">No brain data</div>'; return; }
+    const m = d.memory;
+    const id = d.identity || {};
+    const wr = parseFloat(m.winRate) || 0;
+    const totalPnl = parseFloat(String(m.totalPnl).replace('$','')) || 0;
+    const todayPnl = parseFloat(String(m.todayPnl).replace('$','')) || 0;
+    const best = parseFloat(String(m.bestTrade).replace('$','')) || 0;
+    const worst = parseFloat(String(m.worstTrade).replace('$','')) || 0;
+    const wrColor = wr >= 52 ? 'var(--green)' : wr >= 48 ? 'var(--yellow)' : 'var(--red)';
+    const pnlColor = totalPnl >= 0 ? 'var(--green)' : 'var(--red)';
+    const streak = m.currentStreak || 0;
+    const streakIcon = streak >= 0 ? '🔥' : '❄️';
+
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-size:11px;font-weight:700;color:var(--green);">${id.stage || '?'}</span>
+        <span style="font-size:9px;color:var(--text-dim);">max $${id.maxBetUsd || '?'} · Kelly ${((id.kellyFraction||0)*100).toFixed(0)}%</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;">
+        <div style="display:flex;justify-content:space-between;">
+          <span style="color:var(--text-dim);">WIN RATE</span>
+          <span style="color:${wrColor};font-weight:700;">${m.winRate}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;">
+          <span style="color:var(--text-dim);">RECORD</span>
+          <span>${m.wins}W / ${m.losses}L</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;">
+          <span style="color:var(--text-dim);">TOTAL P/L</span>
+          <span style="color:${pnlColor};font-weight:700;">${m.totalPnl}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;">
+          <span style="color:var(--text-dim);">TODAY P/L</span>
+          <span style="color:${todayPnl >= 0 ? 'var(--green)' : 'var(--red)'};">${m.todayPnl}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;">
+          <span style="color:var(--text-dim);">BEST</span>
+          <span style="color:var(--green);">+${m.bestTrade}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;">
+          <span style="color:var(--text-dim);">WORST</span>
+          <span style="color:var(--red);">${m.worstTrade}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;">
+          <span style="color:var(--text-dim);">STREAK</span>
+          <span style="color:${streak >= 0 ? 'var(--green)' : 'var(--red)'};">${streakIcon} ${streak >= 0 ? '+' : ''}${streak}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;">
+          <span style="color:var(--text-dim);">TRADES</span>
+          <span>${m.totalTrades} (${m.todayTrades} today)</span>
+        </div>
+      </div>`;
+  } catch(e) {
+    document.getElementById('brain-stats').innerHTML = '<div style="color:var(--text-dim);text-align:center;">Brain offline</div>';
+  }
+}
+
 // Load all data
 async function loadAll() {
-  await Promise.all([loadMarket(), loadPositions(), loadOrders(), loadTradeLog(), loadBotMessages()]);
+  await Promise.all([loadMarket(), loadPositions(), loadOrders(), loadTradeLog(), loadBotMessages(), loadBrainStats()]);
 }
 
 // Init
@@ -727,6 +798,7 @@ initAuth().then(() => {
   setInterval(loadOrders, 10000);
   setInterval(loadTradeLog, 10000);
   setInterval(loadBotMessages, 8000);
+  setInterval(loadBrainStats, 15000);
 });
 </script>
 </body>

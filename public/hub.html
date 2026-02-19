@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>rPoly | Intelligence Hub</title>
+  <title>OpenClaw Brain | Autonomous Trading Intelligence</title>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700;900&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -61,7 +61,7 @@
     section:first-of-type { padding-top:60px; }
 
     /* Hero */
-    .hero { text-align:center; padding-top:60px; padding-bottom:60px; }
+    .hero { text-align:center; padding-top:60px; padding-bottom:40px; }
     .hero-pre { font-size:11px; letter-spacing:3px; text-transform:uppercase; color:var(--green); margin-bottom:16px; opacity:0.7; }
     .hero h1 { font-size:42px; font-weight:900; color:var(--text-bright); line-height:1.1; margin-bottom:20px; }
     .hero h1 .accent { color:var(--green); text-shadow:0 0 30px rgba(0,255,65,0.3); }
@@ -125,14 +125,24 @@
     .code-block .str { color:var(--yellow); }
     .code-block .num { color:var(--blue); }
 
-    /* Strategy cards */
-    .strat-card { position:relative; padding-left:16px; border-left:3px solid var(--border); }
-    .strat-card.fade { border-color:var(--red); }
-    .strat-card.whale { border-color:var(--blue); }
-    .strat-card.momentum { border-color:var(--green); }
-    .strat-name { font-size:14px; font-weight:700; color:var(--text-bright); margin-bottom:4px; }
-    .strat-logic { font-size:11px; color:var(--text-dim); line-height:1.6; margin-bottom:8px; }
-    .strat-example { font-size:10px; color:var(--text); background:#080c08; padding:8px 12px; border:1px solid var(--border); }
+    /* Signal list */
+    .signal-list { display:flex; flex-direction:column; gap:0; }
+    .signal-row {
+      display:grid; grid-template-columns:3px 140px 1fr auto;
+      align-items:center; gap:0 16px;
+      padding:14px 0; border-bottom:1px solid rgba(255,255,255,0.04);
+      transition:background .2s;
+    }
+    .signal-row:last-child { border-bottom:none; }
+    .signal-row:hover { background:rgba(0,255,65,0.02); }
+    .signal-accent { width:3px; height:100%; min-height:20px; border-radius:2px; }
+    .signal-name { font-size:13px; font-weight:700; color:var(--text-bright); white-space:nowrap; }
+    .signal-desc { font-size:11px; color:var(--text-dim); line-height:1.5; }
+    .signal-status { font-size:9px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:var(--green); padding:3px 10px; border:1px solid rgba(0,255,65,0.25); background:rgba(0,255,65,0.06); white-space:nowrap; }
+    @media (max-width:700px) {
+      .signal-row { grid-template-columns:3px 1fr auto; }
+      .signal-desc { display:none; }
+    }
 
     /* Agent section */
     .agent-section { background:linear-gradient(135deg, rgba(0,255,65,0.03) 0%, rgba(77,166,255,0.03) 100%); border:1px solid var(--border); padding:40px; text-align:center; }
@@ -156,6 +166,89 @@
     .fade-in { opacity:0; transform:translateY(20px); transition:opacity .6s ease, transform .6s ease; }
     .fade-in.visible { opacity:1; transform:translateY(0); }
 
+    /* Strategy Profiles */
+    .strat-pills { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:20px; }
+    .strat-pill {
+      padding:6px 14px; font-family:inherit; font-size:11px; font-weight:700;
+      letter-spacing:1px; background:transparent; color:var(--text-dim);
+      border:1px solid var(--border); cursor:pointer; transition:all .2s;
+    }
+    .strat-pill:hover { color:var(--green); border-color:var(--border-bright); }
+    .strat-pill.selected { color:var(--green); border-color:var(--green); background:rgba(0,255,65,0.06); box-shadow:0 0 8px rgba(0,255,65,0.15); }
+    .strat-pill .pill-active { font-size:7px; color:var(--bg); background:var(--green); padding:1px 4px; margin-left:4px; vertical-align:middle; letter-spacing:0.5px; }
+    .strat-detail { background:var(--card); border:1px solid var(--border); padding:24px; margin-bottom:20px; }
+    .strat-detail-header { display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+    .strat-detail-name { font-size:18px; font-weight:900; color:var(--text-bright); }
+    .strat-detail-desc { font-size:11px; color:var(--text-dim); line-height:1.6; margin-bottom:16px; }
+    .strat-params { width:100%; border-collapse:collapse; font-size:10px; }
+    .strat-params th { text-align:left; color:var(--green); font-weight:600; padding:4px 10px 4px 0; border-bottom:1px solid var(--border); text-transform:uppercase; letter-spacing:1px; font-size:9px; }
+    .strat-params td { padding:5px 10px 5px 0; border-bottom:1px solid rgba(255,255,255,0.03); color:var(--text); }
+    .strat-params td:first-child { color:var(--text-dim); }
+    .risk-badge { display:inline-block; padding:2px 8px; font-size:9px; font-weight:700; letter-spacing:1px; text-transform:uppercase; }
+    .risk-low { background:rgba(0,255,65,0.1); color:var(--green); border:1px solid rgba(0,255,65,0.2); }
+    .risk-medium { background:rgba(255,170,0,0.1); color:var(--yellow); border:1px solid rgba(255,170,0,0.2); }
+    .risk-high { background:rgba(255,51,51,0.1); color:var(--red); border:1px solid rgba(255,51,51,0.2); }
+    .strat-compare { width:100%; border-collapse:collapse; font-size:10px; background:var(--card); border:1px solid var(--border); }
+    .strat-compare th { padding:8px 6px; text-align:center; color:var(--green); font-size:9px; font-weight:600; letter-spacing:1px; text-transform:uppercase; border-bottom:1px solid var(--border); }
+    .strat-compare td { padding:6px; text-align:center; border-bottom:1px solid rgba(255,255,255,0.03); color:var(--text-dim); }
+    .strat-compare tr:hover td { background:rgba(0,255,65,0.03); }
+    .strat-compare .col-name { text-align:left; color:var(--text-bright); font-weight:700; }
+    .strat-compare .col-active { color:var(--green); }
+
+    /* Brain Flow Diagram */
+    .brain-flow-section { padding:0 0 40px; text-align:center; }
+    .brain-flow-wrap {
+      position:relative; max-width:1100px; margin:0 auto;
+      border:1px solid var(--border); background:rgba(0,255,65,0.01);
+      overflow:hidden;
+    }
+    .brain-flow-wrap canvas { display:block; width:100%; height:420px; }
+    .brain-flow-title {
+      font-size:10px; letter-spacing:3px; text-transform:uppercase;
+      color:var(--green); opacity:0.6; padding:16px 0 4px; margin:0 auto;
+    }
+
+    /* Brain Stats Bar */
+    .brain-stats {
+      display:flex; justify-content:center; gap:32px; flex-wrap:wrap;
+      padding:20px 32px; max-width:1100px; margin:0 auto;
+      border:1px solid var(--border); border-top:none;
+      background:var(--card);
+    }
+    .brain-stat { text-align:center; }
+    .brain-stat-val { font-size:18px; font-weight:900; color:var(--green); }
+    .brain-stat-label { font-size:9px; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px; margin-top:2px; }
+
+    /* Tab Bar */
+    .tab-bar {
+      display:flex; justify-content:center; gap:0;
+      max-width:400px; margin:0 auto 10px;
+      padding:0 32px;
+    }
+    .tab-btn {
+      flex:1; padding:14px 28px;
+      font-family:inherit; font-size:11px; font-weight:700;
+      letter-spacing:2px; text-transform:uppercase;
+      background:transparent; color:var(--text-dim);
+      border:1px solid var(--border);
+      cursor:pointer; transition:all .25s;
+      position:relative;
+    }
+    .tab-btn:first-child { border-right:none; }
+    .tab-btn:hover { color:var(--green); background:rgba(0,255,65,0.03); }
+    .tab-btn.tab-active {
+      color:var(--green); background:rgba(0,255,65,0.06);
+      border-color:var(--green);
+      box-shadow:0 0 12px rgba(0,255,65,0.1), inset 0 0 20px rgba(0,255,65,0.03);
+    }
+    .tab-btn.tab-active::after {
+      content:''; position:absolute; bottom:-1px; left:20%; right:20%;
+      height:2px; background:var(--green);
+      box-shadow:0 0 8px var(--green);
+    }
+    .tab-panel { display:none; }
+    .tab-panel.tab-visible { display:block; }
+
     /* Responsive */
     @media (max-width:900px) {
       .grid-3 { grid-template-columns:1fr; }
@@ -164,10 +257,17 @@
       section { padding:60px 16px 40px; }
       .hero { padding-top:40px; }
       .agent-features { gap:16px; }
+      .brain-flow-wrap canvas { height:320px; }
+      .brain-stats { gap:16px; padding:16px; }
     }
     @media (max-width:600px) {
       header { padding:10px 16px; }
       .hero-cta { flex-direction:column; align-items:center; }
+      .brain-flow-wrap canvas { height:520px; }
+      .brain-stats { gap:12px; }
+      .brain-stat-val { font-size:14px; }
+      .tab-bar { padding:0 16px; }
+      .tab-btn { padding:10px 16px; font-size:10px; letter-spacing:1px; }
     }
   </style>
 </head>
@@ -200,24 +300,158 @@
 <!-- Hero -->
 <section class="hero">
   <div class="fade-in">
-    <div class="hero-pre">// intelligence layer for polymarket</div>
-    <h1>r<span class="accent">Poly</span> Intelligence Hub</h1>
+    <div class="hero-pre">// autonomous trading intelligence</div>
+    <h1>OpenClaw <span class="accent">Brain</span></h1>
     <p class="hero-sub">
-      Real-time odds tracking, whale detection, and trade signal generation
-      for Polymarket BTC 5-minute markets. Built for humans and agents.
+      Self-evolving neural trading system. 7 signal engines fuse market data, whale flow,
+      and price momentum into autonomous decisions &mdash; calibrating after every trade.
+      Strategies distilled from Simons, Thorp, Dalio, and Livermore.
     </p>
     <div class="hero-badges">
-      <span class="badge live"><span class="dot on" style="margin-right:4px;"></span> Collector Active</span>
+      <span class="badge live"><span class="dot on" style="margin-right:4px;"></span> Brain Active</span>
       <span class="badge" id="badge-snapshots">-- snapshots</span>
-      <span class="badge" id="badge-trades">-- trades</span>
+      <span class="badge" id="badge-trades">-- trades learned</span>
       <span class="badge" id="badge-whales">-- whale scans</span>
-    </div>
-    <div class="hero-cta">
-      <a href="#api" class="btn btn-primary">Explore API</a>
-      <a href="/" class="btn btn-ghost">Dashboard</a>
     </div>
   </div>
 </section>
+
+<!-- Tab Switcher -->
+<div class="tab-bar">
+  <button class="tab-btn tab-active" onclick="switchTab('brain')" data-tab="brain">Brain</button>
+  <button class="tab-btn" onclick="switchTab('data')" data-tab="data">Data</button>
+</div>
+
+<!-- ===== BRAIN TAB ===== -->
+<div class="tab-panel tab-visible" id="tab-brain">
+
+<!-- Brain Flow Diagram -->
+<section class="brain-flow-section fade-in" id="brain-flow">
+  <div class="brain-flow-title">Neural Architecture</div>
+  <div class="brain-flow-wrap">
+    <canvas id="brain-canvas"></canvas>
+  </div>
+</section>
+
+<!-- Strategy Profiles -->
+<section id="strategy-profiles">
+  <div class="section-label fade-in">Risk Management</div>
+  <div class="section-title fade-in">Strategy Profiles</div>
+  <p class="section-sub fade-in">Pre-built risk profiles generated during the Student stage. Each profile defines stop-loss, take-profit, trailing stops, and hold zones for binary 5-minute markets.</p>
+
+  <div class="fade-in">
+    <div class="strat-pills" id="strat-pills"></div>
+    <div class="strat-detail" id="strat-detail">
+      <div style="color:var(--text-dim);font-size:11px;">Loading strategies...</div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="strat-compare" id="strat-compare">
+        <thead><tr><th>Profile</th><th>SL</th><th>Emergency</th><th>Catastrophic</th><th>TP Trigger</th><th>Trail</th><th>Hold Zone</th><th>Pre-Close</th><th>Max Loss</th><th>Min WR</th><th>Risk</th></tr></thead>
+        <tbody id="strat-compare-body"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- Signal Engines -->
+<section id="strategies">
+  <div class="section-label fade-in">Signal Engines</div>
+  <div class="section-title fade-in">7 Autonomous Trading Signals</div>
+  <p class="section-sub fade-in">Each signal independently analyzes a dimension of market data. The Cortex fuses them, weights by historical performance, and calibrates confidence before every trade.</p>
+
+  <div class="signal-list fade-in">
+    <div class="signal-row">
+      <div class="signal-accent" style="background:var(--red);"></div>
+      <div class="signal-name">Crowd Fade</div>
+      <div class="signal-desc">Contrarian play when crowd confidence exceeds 62%. Fades retail overshoot in 5-min windows.</div>
+      <span class="signal-status">Active</span>
+    </div>
+    <div class="signal-row">
+      <div class="signal-accent" style="background:var(--green);"></div>
+      <div class="signal-name">Momentum</div>
+      <div class="signal-desc">Rides BTC price divergence &gt;0.03% from Price-to-Beat. Time-weighted conviction.</div>
+      <span class="signal-status">Active</span>
+    </div>
+    <div class="signal-row">
+      <div class="signal-accent" style="background:var(--blue);"></div>
+      <div class="signal-name">Whale Follow</div>
+      <div class="signal-desc">Follows top 10 holders when capital concentrates &gt;60% on one side.</div>
+      <span class="signal-status">Active</span>
+    </div>
+    <div class="signal-row">
+      <div class="signal-accent" style="background:var(--yellow);"></div>
+      <div class="signal-name">Odds Shift</div>
+      <div class="signal-desc">Detects rapid odds movement &gt;5pts across snapshots. Rides new information early.</div>
+      <span class="signal-status">Active</span>
+    </div>
+    <div class="signal-row">
+      <div class="signal-accent" style="background:var(--green);"></div>
+      <div class="signal-name">Odds Bias</div>
+      <div class="signal-desc">Fallback signal using raw market odds deviation from 50/50 when BTC data unavailable.</div>
+      <span class="signal-status">Active</span>
+    </div>
+    <div class="signal-row">
+      <div class="signal-accent" style="background:var(--red);"></div>
+      <div class="signal-name">Mean Reversion</div>
+      <div class="signal-desc">Fades overreaction after extreme moves &gt;0.1% BTC divergence + odds &gt;75%.</div>
+      <span class="signal-status">Active</span>
+    </div>
+    <div class="signal-row">
+      <div class="signal-accent" style="background:var(--blue);"></div>
+      <div class="signal-name">Volume Spike</div>
+      <div class="signal-desc">Detects unusual volume bursts with buying pressure &gt;65% in the last 2 minutes.</div>
+      <span class="signal-status">Active</span>
+    </div>
+  </div>
+</section>
+
+<!-- Self-Learning System -->
+<section id="agents">
+  <div class="fade-in">
+    <div class="agent-section">
+      <div class="section-label" style="text-align:center;">Evolution</div>
+      <h3>Self-Learning System</h3>
+      <p>
+        Every trade rewrites the brain. Strategy weights shift based on P/L, confidence calibration
+        corrects overconfidence, and hourly performance gates adapt to market rhythm.
+        Five evolution stages from Student to Grandmaster &mdash; each unlocking larger positions
+        and tighter Kelly fractions.
+      </p>
+      <div class="agent-features">
+        <div class="agent-feat">
+          <div class="agent-feat-icon" style="color:var(--text-dim);">I</div>
+          <div class="agent-feat-text">Student</div>
+          <div style="font-size:9px;color:var(--text-dim);margin-top:2px;">0-100 trades &middot; $1 max</div>
+        </div>
+        <div class="agent-feat">
+          <div class="agent-feat-icon" style="color:var(--yellow);">II</div>
+          <div class="agent-feat-text">Apprentice</div>
+          <div style="font-size:9px;color:var(--text-dim);margin-top:2px;">100-500 &middot; $2 max &middot; 52% WR</div>
+        </div>
+        <div class="agent-feat">
+          <div class="agent-feat-icon" style="color:var(--blue);">III</div>
+          <div class="agent-feat-text">Journeyman</div>
+          <div style="font-size:9px;color:var(--text-dim);margin-top:2px;">500-2K &middot; $5 max &middot; 54% WR</div>
+        </div>
+        <div class="agent-feat">
+          <div class="agent-feat-icon" style="color:var(--green);">IV</div>
+          <div class="agent-feat-text">Master</div>
+          <div style="font-size:9px;color:var(--text-dim);margin-top:2px;">2K-10K &middot; $20 max &middot; 55% WR</div>
+        </div>
+        <div class="agent-feat">
+          <div class="agent-feat-icon" style="color:var(--green);text-shadow:0 0 12px rgba(0,255,65,0.6);">V</div>
+          <div class="agent-feat-text">Grandmaster</div>
+          <div style="font-size:9px;color:var(--text-dim);margin-top:2px;">10K+ &middot; $100 max &middot; Half Kelly</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div><!-- /tab-brain -->
+
+<!-- ===== DATA TAB ===== -->
+<div class="tab-panel" id="tab-data">
 
 <!-- Live Data -->
 <section id="live">
@@ -391,99 +625,12 @@
   </div>
 </section>
 
-<!-- Strategies -->
-<section id="strategies">
-  <div class="section-label fade-in">Strategies</div>
-  <div class="section-title fade-in">Signal Playbook</div>
-  <p class="section-sub fade-in">Trading strategies derived from collected data patterns. These are experimental and for educational purposes.</p>
-
-  <div class="grid-3 fade-in">
-    <div class="card strat-card fade">
-      <div class="strat-name">Fade the Crowd</div>
-      <div class="strat-logic">
-        When 70%+ of volume flows to one side, bet against the majority.
-        Crowds overreact in 5-minute markets, creating contrarian edge.
-      </div>
-      <div class="strat-example">
-        if buyRatio > 0.70 &rarr; signal: SELL<br>
-        if sellRatio > 0.70 &rarr; signal: BUY<br>
-        confidence: proportional to skew
-      </div>
-      <span class="card-tag tag-exp">Experimental</span>
-    </div>
-
-    <div class="card strat-card whale">
-      <div class="strat-name">Whale Shadow</div>
-      <div class="strat-logic">
-        Track top holders' positions. When whales accumulate heavily on one side,
-        follow their conviction. Whales typically have better information.
-      </div>
-      <div class="strat-example">
-        whaleUp > 2x whaleDn &rarr; signal: UP<br>
-        whaleDn > 2x whaleUp &rarr; signal: DOWN<br>
-        strength: by whale concentration
-      </div>
-      <span class="card-tag tag-exp">Experimental</span>
-    </div>
-
-    <div class="card strat-card momentum">
-      <div class="strat-name">Momentum Ride</div>
-      <div class="strat-logic">
-        Detect rapid odds movement in one direction over the last 60 seconds.
-        Ride the momentum before the market corrects or settles.
-      </div>
-      <div class="strat-example">
-        delta(upPrice, 60s) > 0.03 &rarr; BUY UP<br>
-        delta(upPrice, 60s) < -0.03 &rarr; BUY DN<br>
-        exit: at midpoint reversion
-      </div>
-      <span class="card-tag tag-soon">Coming Soon</span>
-    </div>
-  </div>
-</section>
-
-<!-- Agent Access -->
-<section id="agents">
-  <div class="fade-in">
-    <div class="agent-section">
-      <div class="section-label" style="text-align:center;">Coming Soon</div>
-      <h3>Built for AI Agents</h3>
-      <p>
-        rPoly is designed as an intelligence layer that AI agents can plug into.
-        Read signals, subscribe to alerts, and execute trades through our proxy infrastructure.
-      </p>
-      <div class="agent-features">
-        <div class="agent-feat">
-          <div class="agent-feat-icon" style="color:var(--green);">&#9889;</div>
-          <div class="agent-feat-text">Signal API</div>
-          <div style="font-size:9px;color:var(--text-dim);margin-top:2px;">Real-time odds + whale data</div>
-        </div>
-        <div class="agent-feat">
-          <div class="agent-feat-icon" style="color:var(--yellow);">&#128276;</div>
-          <div class="agent-feat-text">Alert Hooks</div>
-          <div style="font-size:9px;color:var(--text-dim);margin-top:2px;">Webhook on pattern triggers</div>
-        </div>
-        <div class="agent-feat">
-          <div class="agent-feat-icon" style="color:var(--blue);">&#9881;</div>
-          <div class="agent-feat-text">Trade Proxy</div>
-          <div style="font-size:9px;color:var(--text-dim);margin-top:2px;">Execute via GNOSIS_SAFE</div>
-        </div>
-      </div>
-      <button class="btn-waitlist" onclick="alert('Coming soon! Follow @rPoly for updates.')">Join Waitlist</button>
-    </div>
-  </div>
-</section>
+</div><!-- /tab-data -->
 
 <!-- Footer -->
 <footer class="footer">
-  <div class="footer-links">
-    <a href="/">Dashboard</a>
-    <a href="/trade">Trade</a>
-    <a href="/learn">Data Lab</a>
-    <a href="/hub">Hub</a>
-  </div>
   <div class="footer-note" id="footer-status">
-    Powered by Polymarket CLOB + Data API | Collector: --
+    OpenClaw Brain | Polymarket CLOB + Data API | Collector: --
   </div>
 </footer>
 
@@ -499,6 +646,23 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
+// ===== TAB SWITCHING =====
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('tab-active', b.dataset.tab === tab));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('tab-visible', p.id === 'tab-' + tab));
+  if (tab === 'brain') {
+    window.dispatchEvent(new Event('resize'));
+  }
+  if (tab === 'data') {
+    fetchOdds();
+    fetchWhales();
+    fetchTradeFlow();
+  }
+  document.querySelectorAll('.tab-panel.tab-visible .fade-in:not(.visible)').forEach(el => {
+    el.classList.add('visible');
+  });
+}
+
 // ===== NAV STATUS =====
 async function fetchStatus() {
   try {
@@ -509,10 +673,10 @@ async function fetchStatus() {
     document.getElementById('nav-status-text').textContent =
       d.running ? d.stats.odds + ' snapshots' : 'Offline';
     document.getElementById('badge-snapshots').textContent = (d.stats.odds || 0) + ' snapshots';
-    document.getElementById('badge-trades').textContent = (d.stats.globalTrades || 0) + ' trades';
+    document.getElementById('badge-trades').textContent = (d.stats.globalTrades || 0) + ' trades learned';
     document.getElementById('badge-whales').textContent = (d.stats.whales || 0) + ' whale scans';
     document.getElementById('footer-status').textContent =
-      'Powered by Polymarket CLOB + Data API | Collector: ' +
+      'OpenClaw Brain | Polymarket CLOB + Data API | Collector: ' +
       (d.running ? 'RUNNING' : 'OFFLINE') + ' | ' + (d.stats.odds||0) + ' odds / ' + (d.stats.globalTrades||0) + ' trades today';
   } catch(e) {}
 }
@@ -553,7 +717,6 @@ function drawMiniChart(data) {
     if (d.upPrice > maxY) maxY = d.upPrice + 0.02;
   });
 
-  // UP line
   ctx.strokeStyle = '#00ff41';
   ctx.lineWidth = 1.5;
   ctx.shadowColor = 'rgba(0,255,65,0.4)';
@@ -566,7 +729,6 @@ function drawMiniChart(data) {
   });
   ctx.stroke();
 
-  // DOWN line
   ctx.strokeStyle = '#ff3333';
   ctx.shadowColor = 'rgba(255,50,50,0.3)';
   ctx.beginPath();
@@ -660,6 +822,411 @@ function initFadeIn() {
   document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
 }
 
+// ===== STRATEGY PROFILES =====
+let strategyData = null;
+async function fetchStrategies() {
+  try {
+    const r = await fetch('/api/strategies');
+    strategyData = await r.json();
+    if (!strategyData || !strategyData.profiles) return;
+    renderStrategyPills(strategyData);
+    renderStrategyDetail(strategyData.active);
+    renderStrategyCompare(strategyData);
+  } catch(e) {}
+}
+
+function renderStrategyPills(data) {
+  const container = document.getElementById('strat-pills');
+  const keys = Object.keys(data.profiles);
+  container.innerHTML = keys.map(k => {
+    const p = data.profiles[k];
+    const isActive = k === data.active;
+    return '<button class="strat-pill' + (isActive ? ' selected' : '') + '" data-key="' + k + '" onclick="selectStrategy(\'' + k + '\')">'
+      + k + ': ' + p.name
+      + (isActive ? '<span class="pill-active">ACTIVE</span>' : '')
+      + '</button>';
+  }).join('');
+}
+
+function selectStrategy(key) {
+  document.querySelectorAll('.strat-pill').forEach(el => {
+    el.classList.toggle('selected', el.dataset.key === key);
+  });
+  renderStrategyDetail(key);
+}
+
+function pct(v) { return (Math.abs(v) * 100).toFixed(0) + '%'; }
+
+function renderStrategyDetail(key) {
+  if (!strategyData) return;
+  const p = strategyData.profiles[key];
+  if (!p) return;
+  const isActive = key === strategyData.active;
+  const riskClass = p.riskLevel === 'low' ? 'risk-low' : p.riskLevel === 'high' ? 'risk-high' : 'risk-medium';
+  const holdType = p.tpTrail > 0 ? 'Trailing (' + pct(p.tpTrail) + ' from peak)' : 'Fixed';
+  const gainRange = '$' + p.expectedGain[0].toFixed(2) + ' - $' + p.expectedGain[1].toFixed(2);
+
+  document.getElementById('strat-detail').innerHTML =
+    '<div class="strat-detail-header">'
+    + '<span class="strat-detail-name">' + key + ': ' + p.name + '</span>'
+    + '<span class="risk-badge ' + riskClass + '">' + p.riskLevel + '</span>'
+    + (isActive ? '<span class="card-tag tag-live">Active</span>' : '')
+    + '</div>'
+    + '<div class="strat-detail-desc">' + p.description + '</div>'
+    + '<table class="strat-params">'
+    + '<tr><th colspan="2">Exit Parameters</th><th colspan="2">Timing</th></tr>'
+    + '<tr><td>Stop Loss</td><td style="color:var(--red);font-weight:700;">' + pct(p.stopLoss) + '</td>'
+    + '<td>Min Hold (SL)</td><td>' + p.minHoldSL + 's</td></tr>'
+    + '<tr><td>Emergency</td><td style="color:var(--red);">' + pct(p.emergencyLoss) + ' (' + (p.minHoldEmergency || 5) + 's)</td>'
+    + '<td>Catastrophic</td><td style="color:var(--red);font-weight:700;">' + (p.catastrophicLoss ? pct(p.catastrophicLoss) + ' (instant)' : 'n/a') + '</td></tr>'
+    + '<tr><td></td><td></td>'
+    + '<td>Min Hold (TP)</td><td>' + p.minHoldTP + 's</td></tr>'
+    + '<tr><td>TP Trigger</td><td style="color:var(--green);font-weight:700;">+' + pct(p.tpTrigger) + '</td>'
+    + '<td>Pre-Close</td><td>' + p.preCloseSec + 's</td></tr>'
+    + '<tr><td>TP Type</td><td>' + holdType + '</td>'
+    + '<td>Hold Zone</td><td>+' + pct(p.holdZoneMin) + ' to +' + pct(p.holdZoneMax) + '</td></tr>'
+    + '<tr><th colspan="2">Risk Profile</th><th colspan="2">Expected</th></tr>'
+    + '<tr><td>Max Loss / Trade</td><td style="color:var(--red);">$' + p.maxLossPerTrade.toFixed(2) + '</td>'
+    + '<td>Expected Gain</td><td style="color:var(--green);">' + gainRange + '</td></tr>'
+    + '<tr><td>Risk Level</td><td><span class="risk-badge ' + riskClass + '">' + p.riskLevel + '</span></td>'
+    + '<td>Required WR</td><td>' + (p.requiredWR * 100).toFixed(0) + '%</td></tr>'
+    + '</table>';
+}
+
+function renderStrategyCompare(data) {
+  const tbody = document.getElementById('strat-compare-body');
+  const keys = Object.keys(data.profiles);
+  tbody.innerHTML = keys.map(k => {
+    const p = data.profiles[k];
+    const isActive = k === data.active;
+    const cls = isActive ? ' class="col-active"' : '';
+    const riskClass = p.riskLevel === 'low' ? 'risk-low' : p.riskLevel === 'high' ? 'risk-high' : 'risk-medium';
+    const catLoss = p.catastrophicLoss ? pct(p.catastrophicLoss) : '-';
+    return '<tr>'
+      + '<td class="col-name"' + cls + '>' + k + ': ' + p.name + (isActive ? ' *' : '') + '</td>'
+      + '<td' + cls + '>' + pct(p.stopLoss) + '</td>'
+      + '<td' + cls + '>' + pct(p.emergencyLoss) + '</td>'
+      + '<td' + cls + '>' + catLoss + '</td>'
+      + '<td' + cls + '>+' + pct(p.tpTrigger) + '</td>'
+      + '<td' + cls + '>' + (p.tpTrail > 0 ? pct(p.tpTrail) : 'fixed') + '</td>'
+      + '<td' + cls + '>+' + pct(p.holdZoneMin) + '-' + pct(p.holdZoneMax) + '</td>'
+      + '<td' + cls + '>' + p.preCloseSec + 's</td>'
+      + '<td' + cls + ' style="color:var(--red);">$' + p.maxLossPerTrade.toFixed(2) + '</td>'
+      + '<td' + cls + '>' + (p.requiredWR * 100).toFixed(0) + '%</td>'
+      + '<td><span class="risk-badge ' + riskClass + '">' + p.riskLevel + '</span></td>'
+      + '</tr>';
+  }).join('');
+}
+
+// ===== BRAIN FLOW CANVAS =====
+(function() {
+  const canvas = document.getElementById('brain-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  let W, H, dpr, isMobile;
+  const GREEN = '#00ff41';
+  const DIM = '#1a2a1a';
+  const BG = '#0a0a0a';
+
+  const nodeData = {
+    inputs: [
+      { id:'btc', label:'BTC Price' },
+      { id:'odds', label:'Market Odds' },
+      { id:'whales', label:'Whale Flow' },
+      { id:'trades', label:'Trade Flow' },
+      { id:'ob', label:'Orderbook' },
+    ],
+    core: [
+      { id:'signals', label:'7 Signal Engines' },
+      { id:'fusion', label:'Signal Fusion' },
+      { id:'calibration', label:'Confidence Cal.' },
+      { id:'kelly', label:'Kelly Sizing' },
+    ],
+    outputs: [
+      { id:'action', label:'BUY / SELL' },
+      { id:'memory', label:'Memory Update' },
+    ],
+  };
+
+  let nodes = [];
+  let edges = [];
+  let particles = [];
+  let hoveredNode = null;
+  let pulsePhase = 0;
+
+  function layout() {
+    dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    W = rect.width;
+    H = rect.height;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    isMobile = W < 600;
+
+    nodes = [];
+    edges = [];
+
+    if (isMobile) {
+      layoutVertical();
+    } else {
+      layoutHorizontal();
+    }
+
+    buildEdges();
+    particles = [];
+    for (const e of edges) {
+      const count = e.feedback ? 3 : 2;
+      for (let i = 0; i < count; i++) {
+        particles.push({ edge: e, t: Math.random(), speed: 0.002 + Math.random() * 0.003 });
+      }
+    }
+  }
+
+  function layoutHorizontal() {
+    const nw = 120, nh = 28, gap = 10;
+    const colX = [60, W * 0.35, W * 0.55, W * 0.75, W - 80];
+
+    const inputStartY = H / 2 - (nodeData.inputs.length * (nh + gap)) / 2 + nh / 2;
+    nodeData.inputs.forEach((d, i) => {
+      nodes.push({ ...d, x: colX[0], y: inputStartY + i * (nh + gap), w: nw, h: nh, group: 'input' });
+    });
+
+    const coreStartY = H / 2 - (nodeData.core.length * (nh + gap)) / 2 + nh / 2;
+    nodeData.core.forEach((d, i) => {
+      if (i === 0) {
+        nodes.push({ ...d, x: colX[1], y: H / 2, w: nw + 20, h: nh + 4, group: 'core' });
+      } else if (i === 1) {
+        nodes.push({ ...d, x: colX[2], y: H / 2, w: nw, h: nh, group: 'core' });
+      } else {
+        nodes.push({ ...d, x: colX[3], y: coreStartY + (i - 1) * (nh + gap), w: nw, h: nh, group: 'core' });
+      }
+    });
+
+    const outStartY = H / 2 - (nodeData.outputs.length * (nh + gap)) / 2 + nh / 2;
+    nodeData.outputs.forEach((d, i) => {
+      nodes.push({ ...d, x: colX[4], y: outStartY + i * (nh + gap), w: nw, h: nh, group: 'output' });
+    });
+  }
+
+  function layoutVertical() {
+    const nw = 110, nh = 24, gap = 6;
+    const cx = W / 2;
+    let y = 30;
+
+    const inputsPerRow = Math.min(3, Math.floor((W - 20) / (nw + 8)));
+    const inputRows = Math.ceil(nodeData.inputs.length / inputsPerRow);
+    for (let i = 0; i < nodeData.inputs.length; i++) {
+      const row = Math.floor(i / inputsPerRow);
+      const col = i % inputsPerRow;
+      const rowCount = Math.min(inputsPerRow, nodeData.inputs.length - row * inputsPerRow);
+      const startX = cx - (rowCount * (nw + 8)) / 2 + (nw + 8) / 2;
+      nodes.push({ ...nodeData.inputs[i], x: startX + col * (nw + 8), y: y + row * (nh + gap), w: nw, h: nh, group: 'input' });
+    }
+    y += inputRows * (nh + gap) + 20;
+
+    nodeData.core.forEach((d, i) => {
+      const w = i === 0 ? nw + 20 : nw;
+      nodes.push({ ...d, x: cx, y: y, w: w, h: nh, group: 'core' });
+      y += nh + gap + 6;
+    });
+    y += 10;
+
+    nodeData.outputs.forEach((d, i) => {
+      nodes.push({ ...d, x: cx, y: y, w: nw, h: nh, group: 'output' });
+      y += nh + gap + 6;
+    });
+  }
+
+  function getNode(id) { return nodes.find(n => n.id === id); }
+
+  function buildEdges() {
+    edges = [];
+    const signalsNode = getNode('signals');
+    const fusionNode = getNode('fusion');
+    const calNode = getNode('calibration');
+    const kellyNode = getNode('kelly');
+    const actionNode = getNode('action');
+    const memNode = getNode('memory');
+
+    for (const inp of nodeData.inputs) {
+      const n = getNode(inp.id);
+      if (n && signalsNode) edges.push({ from: n, to: signalsNode });
+    }
+    if (signalsNode && fusionNode) edges.push({ from: signalsNode, to: fusionNode });
+    if (fusionNode && calNode) edges.push({ from: fusionNode, to: calNode });
+    if (calNode && kellyNode) edges.push({ from: calNode, to: kellyNode });
+    if (kellyNode && actionNode) edges.push({ from: kellyNode, to: actionNode });
+    if (actionNode && memNode) edges.push({ from: actionNode, to: memNode });
+    if (memNode && calNode) edges.push({ from: memNode, to: calNode, feedback: true });
+  }
+
+  function edgePoint(edge, t) {
+    const f = edge.from, to = edge.to;
+    const x1 = f.x, y1 = f.y, x2 = to.x, y2 = to.y;
+
+    if (edge.feedback) {
+      const offsetY = isMobile ? 30 : Math.max(60, H * 0.35);
+      const offsetX = isMobile ? W * 0.4 : 0;
+      const mx = (x1 + x2) / 2 + offsetX;
+      const my = Math.max(y1, y2) + offsetY;
+      const u = 1 - t;
+      return {
+        x: u * u * x1 + 2 * u * t * mx + t * t * x2,
+        y: u * u * y1 + 2 * u * t * my + t * t * y2,
+      };
+    }
+
+    if (!isMobile) {
+      const cx1 = x1 + (x2 - x1) * 0.4;
+      const cx2 = x1 + (x2 - x1) * 0.6;
+      const u = 1 - t;
+      return {
+        x: u*u*u*x1 + 3*u*u*t*cx1 + 3*u*t*t*cx2 + t*t*t*x2,
+        y: u*u*u*y1 + 3*u*u*t*y1 + 3*u*t*t*y2 + t*t*t*y2,
+      };
+    }
+
+    return { x: x1 + (x2 - x1) * t, y: y1 + (y2 - y1) * t };
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    pulsePhase += 0.015;
+
+    const coreNodes = nodes.filter(n => n.group === 'core');
+    if (coreNodes.length >= 2) {
+      const minX = Math.min(...coreNodes.map(n => n.x - n.w / 2)) - 20;
+      const maxX = Math.max(...coreNodes.map(n => n.x + n.w / 2)) + 20;
+      const minY = Math.min(...coreNodes.map(n => n.y - n.h / 2)) - 16;
+      const maxY = Math.max(...coreNodes.map(n => n.y + n.h / 2)) + 16;
+      const pulse = 0.03 + Math.sin(pulsePhase) * 0.02;
+      ctx.fillStyle = `rgba(0,255,65,${pulse})`;
+      ctx.strokeStyle = `rgba(0,255,65,0.12)`;
+      ctx.lineWidth = 1;
+      roundRect(ctx, minX, minY, maxX - minX, maxY - minY, 8);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(0,255,65,0.35)';
+      ctx.font = '9px JetBrains Mono';
+      ctx.textAlign = 'center';
+      ctx.fillText('NEURAL CORE', (minX + maxX) / 2, minY + 10);
+    }
+
+    for (const e of edges) {
+      ctx.strokeStyle = e.feedback ? 'rgba(255,170,0,0.2)' : 'rgba(0,255,65,0.12)';
+      ctx.lineWidth = e.feedback ? 1.5 : 1;
+      ctx.beginPath();
+      const steps = 40;
+      for (let i = 0; i <= steps; i++) {
+        const p = edgePoint(e, i / steps);
+        i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+    }
+
+    for (const p of particles) {
+      p.t += p.speed;
+      if (p.t > 1) p.t -= 1;
+      const pos = edgePoint(p.edge, p.t);
+      const color = p.edge.feedback ? '#ffaa00' : GREEN;
+      const glow = p.edge.feedback ? 'rgba(255,170,0,0.5)' : 'rgba(0,255,65,0.5)';
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.shadowColor = glow;
+      ctx.shadowBlur = 8;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    for (const n of nodes) {
+      const isHovered = hoveredNode === n;
+      const glowAmt = isHovered ? 0.3 : (n.group === 'core' ? 0.08 + Math.sin(pulsePhase + nodes.indexOf(n)) * 0.04 : 0.04);
+      ctx.fillStyle = `rgba(0,255,65,${glowAmt})`;
+      ctx.strokeStyle = isHovered ? GREEN : `rgba(0,255,65,${n.group === 'core' ? 0.5 : 0.3})`;
+      ctx.lineWidth = isHovered ? 2 : 1;
+      if (isHovered) {
+        ctx.shadowColor = 'rgba(0,255,65,0.4)';
+        ctx.shadowBlur = 16;
+      }
+      roundRect(ctx, n.x - n.w / 2, n.y - n.h / 2, n.w, n.h, 4);
+      ctx.fill();
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      ctx.fillStyle = isHovered ? '#e0ffe0' : '#c9d1d9';
+      ctx.font = `${isHovered ? '700' : '500'} ${isMobile ? 9 : 11}px JetBrains Mono`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(n.label, n.x, n.y);
+    }
+
+    const groupLabels = [
+      { group: 'input', label: 'DATA INPUTS', color: 'rgba(0,255,65,0.25)' },
+      { group: 'output', label: 'ACTIONS', color: 'rgba(0,255,65,0.25)' },
+    ];
+    for (const gl of groupLabels) {
+      const gn = nodes.filter(n => n.group === gl.group);
+      if (gn.length === 0) continue;
+      const cx = gn.reduce((s, n) => s + n.x, 0) / gn.length;
+      const topY = Math.min(...gn.map(n => n.y - n.h / 2));
+      ctx.fillStyle = gl.color;
+      ctx.font = '8px JetBrains Mono';
+      ctx.textAlign = 'center';
+      ctx.fillText(gl.label, cx, topY - 10);
+    }
+
+    const fbEdge = edges.find(e => e.feedback);
+    if (fbEdge) {
+      const mid = edgePoint(fbEdge, 0.5);
+      ctx.fillStyle = 'rgba(255,170,0,0.45)';
+      ctx.font = '8px JetBrains Mono';
+      ctx.textAlign = 'center';
+      const offsetX = isMobile ? 0 : 40;
+      const offsetY = isMobile ? 8 : 12;
+      ctx.fillText('FEEDBACK LOOP', mid.x + offsetX, mid.y + offsetY);
+    }
+
+    requestAnimationFrame(draw);
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  canvas.addEventListener('mousemove', function(e) {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    hoveredNode = null;
+    for (const n of nodes) {
+      if (mx >= n.x - n.w / 2 && mx <= n.x + n.w / 2 && my >= n.y - n.h / 2 && my <= n.y + n.h / 2) {
+        hoveredNode = n;
+        break;
+      }
+    }
+    canvas.style.cursor = hoveredNode ? 'pointer' : 'default';
+  });
+
+  canvas.addEventListener('mouseleave', function() { hoveredNode = null; });
+
+  window.addEventListener('resize', layout);
+  layout();
+  draw();
+})();
+
 // ===== INIT =====
 function init() {
   initFadeIn();
@@ -667,6 +1234,7 @@ function init() {
   fetchOdds();
   fetchWhales();
   fetchTradeFlow();
+  fetchStrategies();
 
   setInterval(fetchStatus, 15000);
   setInterval(fetchOdds, 30000);
